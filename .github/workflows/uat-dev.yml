@@ -91,9 +91,14 @@ jobs:
         # Use the CocoaPods pinned in Gemfile.lock, so Podfile.lock is reproduced as committed.
         # Restoring a lock rewritten by another CocoaPods left Pods/Manifest.lock out of step with
         # it, and the iOS archive then stopped with "The sandbox is not in sync with the Podfile.lock".
+        # On the runner even the pinned CocoaPods still rewrites two lines of Podfile.lock. uat.sh
+        # needs the committed lock, and the archive's Check Pods Manifest.lock step compares it with
+        # Pods/Manifest.lock, so print the drift, restore the lock and record it as the manifest.
         run: |
           cd ios && bundle exec pod install
-          cd .. && git diff --stat -- ios/Podfile.lock
+          cd .. && git diff -- ios/Podfile.lock
+          git checkout -- ios/Podfile.lock
+          cp ios/Podfile.lock ios/Pods/Manifest.lock
       - name: Decode signing secrets
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.keystore"
