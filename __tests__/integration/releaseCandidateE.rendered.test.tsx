@@ -69,7 +69,7 @@ async function launch(options: {
     }
     await storage.setItem('@local_llm/downloaded_models', JSON.stringify([model]));
     await storage.setItem('local-llm-app-storage', JSON.stringify({ state: {
-      hasCompletedOnboarding: true, checklistDismissed: true, downloadedModels: [model],
+      hasCompletedOnboarding: true, checklistDismissed: true, downloadedModels: [model], devProDisabled: !options.pro,
       generatedImages: images, settings: { autoDiscoverRemoteModels: false },
     }, version: 0 }));
     await storage.setItem('local-llm-chat-storage', JSON.stringify({ state: {
@@ -90,7 +90,7 @@ async function launch(options: {
     }
   }
   let mesh: LicensedMesh | undefined;
-  if (options.licensed) {
+  if (options.licensed || options.pro) {
     const { createLicensedMesh, installLicensedPhone, registerThisPhone } = require('../harness/licensedMesh');
     mesh = createLicensedMesh();
     mesh!.reset();
@@ -104,6 +104,7 @@ async function launch(options: {
     const { BareResourceFetcher } = require('react-native-executorch-bare-resource-fetcher');
     BareResourceFetcher.listDownloadedFiles = async () => [...voiceFiles];
     BareResourceFetcher.fetch = async (progress: (value: number) => void, ...sources: string[]) => {
+      if (options.staleVoice) throw new TypeError('Device is offline');
       for (const source of sources) voiceFiles.add(`/cache/${source.split('/').pop()}`);
       progress(1);
     };
@@ -114,16 +115,8 @@ async function launch(options: {
   const { useAppStore, useChatStore, useProjectStore, useRemoteServerStore } = require('../../src/stores');
   await Promise.all([useAppStore.persist.rehydrate(), useChatStore.persist.rehydrate(), useProjectStore.persist.rehydrate(), useRemoteServerStore.persist.rehydrate()]);
   if (options.pro) await require('../harness/proHarness').installPro();
-  const { NavigationContainer } = require('@react-navigation/native');
-  const { AppNavigator } = require('../../src/navigation/AppNavigator');
-  const { getSlot, SLOTS } = require('../../src/bootstrap/slotRegistry');
-  const AppRoot = getSlot(SLOTS.appRoot);
-  const view = rtl.render(React.createElement(NavigationContainer, null,
-    React.createElement(React.Fragment, null,
-      AppRoot ? React.createElement(AppRoot) : null,
-      React.createElement(AppNavigator),
-    ),
-  ));
+  const AppRoot = require('../../App').default;
+  const view = rtl.render(React.createElement(AppRoot));
   await view.findByTestId('home-screen');
   return { boundary, view, rtl, storage, voiceFiles, mesh };
 }
@@ -210,16 +203,17 @@ it('M6: Gallery deletes a synced copy and reports an unsafe path for single and 
   const { view, rtl } = app;
   await openGallery(app);
   rtl.fireEvent.press(view.getByTestId('gallery-image-synced'));
-  rtl.fireEvent.press(view.getByText('Delete'));
+  rtl.fireEvent.press((await view.findByText('Delete')));
   await view.findByText('Delete Image');
   await confirmDelete(app);
   await rtl.waitFor(() => expect(view.queryByTestId('gallery-image-synced')).toBeNull());
   rtl.fireEvent.press(view.getByTestId('gallery-image-outside'));
-  rtl.fireEvent.press(view.getByText('Delete'));
+  rtl.fireEvent.press((await view.findByText('Delete')));
   await view.findByText('Delete Image');
   await confirmDelete(app);
   expect(await view.findByText('Image was not deleted')).toBeTruthy();
   rtl.fireEvent.press(view.getByText('OK'));
+  await rtl.waitFor(() => expect(view.queryByText('Image was not deleted')).toBeNull());
   // Close the full-screen viewer through its real dismiss control.
   rtl.fireEvent.press(view.getByText('Close'));
   rtl.fireEvent(view.getByTestId('gallery-image-outside'), 'longPress');
@@ -319,7 +313,7 @@ it('M15: the Pro purchase action opens the canonical payment page', async () => 
   try {
     app.rtl.fireEvent.press(app.view.getByTestId('settings-tab'));
     app.rtl.fireEvent.press(await app.view.findByText('Off Grid AI PRO'));
-    app.rtl.fireEvent.press(await app.view.findByText('Get Pro'));
+    app.rtl.fireEvent.press(await app.view.findByRole('button', { name: 'Get Pro' }));
     await app.rtl.waitFor(() => expect(browserAddress).toMatch(/^https:\/\/getoffgridai\.co\/pay\/\?/));
   } finally {
     Linking.openURL = original;

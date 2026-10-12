@@ -3,6 +3,15 @@ import { installNativeBoundary, requireRTL } from '../../harness/nativeBoundary'
 import { installMcpHttpFake } from '../../harness/mcpHttpFake';
 
 jest.unmock('@react-navigation/native');
+// RN's preset omits the native switch's checked accessibility state.
+jest.mock('react-native/Libraries/Components/Switch/Switch', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return { __esModule: true, default: (props: { value: boolean }) => React.createElement(View, {
+    ...props, accessible: true, accessibilityRole: 'switch',
+    accessibilityState: { checked: props.value },
+  }) };
+});
 
 const alpha = { id: 'legacy-alpha', name: 'Alpha Docs', url: 'https://alpha.example.test/mcp' };
 const beta = { id: 'legacy-beta', name: 'Beta Docs', url: 'https://beta.example.test/mcp' };
@@ -47,6 +56,8 @@ it.each([['Alpha first', alpha, beta], ['Beta first', beta, alpha]] as const)(
       rtl.fireEvent.press(ui.getAllByText('Edit Tools')[1]);
       expect(await ui.findByText('Beta Docs')).toBeTruthy();
       expect(ui.getByRole('switch', { checked: true })).toBeTruthy();
+      expect(ui.getByText('Disable All')).toBeEnabled();
+      expect(ui.getByText('Enable All')).toBeDisabled();
     } finally {
       ui.unmount();
       const { disconnectServer } = require('../../../pro/mcp/mcpService');

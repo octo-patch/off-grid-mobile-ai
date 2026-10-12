@@ -226,7 +226,7 @@ fi
 # Carry the tested build id into the prerelease body too (redundant with the annotated tag),
 # so `gh release view "$TAG"` is a second recovery path if the local tag object is missing.
 printf '\n\n%s\n' "$BUILD_LINE" >> "$NOTES_FILE"
-gh release create "$TAG" "${GH_ARGS[@]}" --prerelease --title "Off Grid ${BETA_VERSION} (beta)" --notes-file "$NOTES_FILE"
+gh release create "$TAG" ${GH_ARGS[@]+"${GH_ARGS[@]}"} --prerelease --title "Off Grid ${BETA_VERSION} (beta)" --notes-file "$NOTES_FILE"
 
 # Announce the beta in Slack — fail-soft, a chat message must never fail a shipped build. Webhook comes
 # from .env.keygen locally (mirrors the SLACK_WEBHOOK_URL repo secret the release workflows use);

@@ -60,7 +60,7 @@ beforeEach(() => {
   }
   writeFileSync(join(mobile, 'fastlane/Fastfile'), '# Native build boundary\n');
   writeFileSync(join(mobile, 'ios/OffgridMobile.xcodeproj/project.pbxproj'), 'MARKETING_VERSION = 0.0.1;\nCURRENT_PROJECT_VERSION = 1;\n');
-  writeFileSync(join(mobile, 'package.json'), '{"name":"release-fixture","version":"0.0.1"}\n');
+  writeFileSync(join(mobile, 'package.json'), `${JSON.stringify({ name: 'release-fixture', version: '0.0.1' }, null, 2)}\n`);
   git(mobile, 'add', '.');
   git(mobile, 'commit', '-m', 'Release fixture');
   git(mobile, 'push');
@@ -75,6 +75,7 @@ it('M2: publishes the tested tag when main is ahead, without changing main', () 
   git(mobile, 'push', '--tags', 'origin', 'main');
   const main = git(mobile, 'rev-parse', 'HEAD');
   const result = run('promote', ['v0.0.1-beta.1']);
+  if (result.status !== 0) throw new Error(result.stdout + result.stderr);
   expect(result.status).toBe(0);
   expect(git(join(root, 'mobile-origin.git'), 'rev-parse', 'refs/heads/main')).toBe(main);
   expect(git(join(root, 'mobile-origin.git'), 'rev-parse', 'refs/tags/v0.0.1^{}')).toBe(beta);
@@ -127,6 +128,7 @@ it.each(['', 'release/candidate'])('M3/M4: records shared source in the beta tag
     save(mobile, 'candidate.txt', 'Explicit release branch');
   }
   const result = run('uat', ['--ios'], { RELEASE_BRANCH: branch });
+  if (result.status !== 0) throw new Error(result.stdout + result.stderr);
   expect(result.status).toBe(0);
   const annotation = git(join(root, 'mobile-origin.git'), 'for-each-ref', 'refs/tags/v0.0.2-beta.1', '--format=%(contents)');
   expect(annotation).toMatch(/Build: \d+\nShared: [a-f0-9]{40}/);
