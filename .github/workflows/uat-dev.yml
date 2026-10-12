@@ -108,6 +108,12 @@ jobs:
           git config user.email "ci@offgridmobile.ai"
           git checkout -B "$GITHUB_REF_NAME"
           git branch --set-upstream-to="origin/$GITHUB_REF_NAME" "$GITHUB_REF_NAME" || true
+          # setup-ruby's bundler-cache writes its path/deployment settings into the tracked
+          # .bundle/config (gems stay in vendor/bundle, which that file already names), and the
+          # toolchain can rewrite the lockfiles. uat.sh refuses a dirty tree, so restore them and
+          # show anything else that is still dirty.
+          git checkout -- .bundle/config Gemfile.lock ios/Podfile.lock 2>/dev/null || true
+          git status --porcelain
       - name: Ship beta (scripts/uat.sh)
         env:
           # Which platform(s): push events build both; manual dispatch honors the picker.
