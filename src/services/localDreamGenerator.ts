@@ -242,9 +242,15 @@ class LocalDreamGeneratorService {
   }
 
   async deleteGeneratedImage(imageId: string, storedImagePath?: string): Promise<boolean> {
-    if (!this.isAvailable()) return false;
-
     if (storedImagePath !== undefined) {
+      const syncedPath = resolveOwnedDocumentPath(
+        storedImagePath,
+        `${RNFS.DocumentDirectoryPath}/shared_files`,
+      );
+      if (syncedPath && !syncedPath.includes('\0')) {
+        if (await RNFS.exists(syncedPath)) await RNFS.unlink(syncedPath);
+        return true;
+      }
       const generatedImageDirectory = `${RNFS.DocumentDirectoryPath}/generated_images`;
       const resolvedPath = resolveOwnedDocumentPath(
         storedImagePath,
@@ -277,6 +283,7 @@ class LocalDreamGeneratorService {
       }
     }
 
+    if (!this.isAvailable()) return false;
     return await DiffusionModule.deleteGeneratedImage(imageId);
   }
 

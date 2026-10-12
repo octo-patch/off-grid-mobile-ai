@@ -273,7 +273,7 @@ describe('Gallery record repointed at its synced copy', () => {
     const before = await decodeRenderedImages(tile, modelTransferFsBoundary.module);
     expect(before).toEqual([{ uri: `file://${ORIGINAL_PATH}`, loaded: false }]);
     expect(
-      ui.getByLabelText(`Generated image loading: ${PROMPT}`),
+      ui.getByLabelText(`Generated image unavailable: ${PROMPT}`),
     ).toBeTruthy();
     expect(ui.queryByLabelText(`Generated image loaded: ${PROMPT}`)).toBeNull();
     fireEvent.press(ui.getByLabelText('Close gallery'));
