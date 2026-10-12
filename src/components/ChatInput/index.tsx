@@ -520,6 +520,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 style={styles.assistantButton}
                 icon={<GodIcon
                   size={16}
+                  fill={assistantEnabled ? colors.primary : 'none'}
+                  stroke={assistantEnabled ? 'none' : colors.textDisabled}
+                  strokeWidth={1}
                   color={assistantEnabled ? colors.primary : colors.textDisabled}
                 />}
               />
