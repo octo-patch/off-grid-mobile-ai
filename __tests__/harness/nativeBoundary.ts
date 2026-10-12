@@ -63,6 +63,9 @@ export function requireRTL(): typeof import('@testing-library/react-native') {
     (
       globalThis as unknown as { __RTL_CLEANUP__?: () => void }
     ).__RTL_CLEANUP__ = rtl.cleanup;
+    // These tests render the whole app; under a full parallel run a sheet closing or a row leaving can take
+    // longer than RNTL's 1s default. Use the 4s the integration suite already passes to its waits.
+    rtl.configure({ asyncUtilTimeout: 4000 });
     return rtl;
   } finally {
     if (prev === undefined) delete process.env.RNTL_SKIP_AUTO_CLEANUP;
