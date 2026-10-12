@@ -22,6 +22,7 @@ export interface KeyedServerOptions {
   /** Origin the server answers on, e.g. 'https://studio.example.test'. */
   origin: string;
   flavour: ServerFlavour;
+  /** Empty means the server accepts only anonymous requests. */
   apiKey: string;
   /** The model the server lists. */
   modelId: string;
@@ -107,7 +108,8 @@ export function installKeyedServer(opts: KeyedServerOptions): KeyedServerHandle 
     if (init?.signal?.aborted) throw new Error('Aborted');
 
     const method = (init?.method ?? 'GET').toUpperCase();
-    const authorized = new Headers(init?.headers).get('Authorization') === `Bearer ${opts.apiKey}`;
+    const authorization = new Headers(init?.headers).get('Authorization');
+    const authorized = opts.apiKey ? authorization === `Bearer ${opts.apiKey}` : authorization === null;
     requests.push({ method, path: url.pathname, authorized });
 
     if (failStatus !== null) return json({ error: 'unavailable' }, failStatus);

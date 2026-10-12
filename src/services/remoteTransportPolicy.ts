@@ -6,8 +6,7 @@ export const PUBLIC_HTTP_REMOTE_ERROR =
 export const HTTP_API_KEY_ERROR =
   'API keys are only sent over HTTPS. Use an https:// address for this server, or remove the key if the server does not need one.';
 
-/** A saved key cannot be honoured over HTTP, so a keyed HTTP check fails with that reason
- *  instead of silently running without the key. */
+/** Whether an HTTP authentication refusal needs to explain that the saved key requires HTTPS. */
 export function keyedHttpEndpoint(endpoint: string, apiKey?: string | null): boolean {
   return !!apiKey && validateRemoteEndpoint(endpoint).protocol === 'http:';
 }

@@ -40,8 +40,12 @@ const realFetch = globalThis.fetch;
 const LAN_ENDPOINT = 'http://192.168.1.40:8080/v1';
 
 /** A llama.cpp server on the LAN over plain HTTP that needs no key to list its models. */
-function startOpenLanServer(): void {
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+function startOpenLanServer(status = 200): void {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new Headers(init?.headers).has('Authorization')) {
+      return new Response('Keys must not be sent over HTTP', { status: 400 });
+    }
+    if (status !== 200) return new Response('Authentication required', { status });
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.pathname === '/v1/models') {
       return new Response(JSON.stringify({ object: 'list', data: [{ id: MODEL, object: 'model' }] }), {
@@ -160,8 +164,7 @@ describe('a saved key on an HTTPS server', () => {
 });
 
 describe('a saved key on a private HTTP server', () => {
-  it('explains that keys need HTTPS, keeps the saved models, and a keyless setup still works', async () => {
-    const { HTTP_API_KEY_ERROR } = require('../../../src/services/remoteTransportPolicy');
+  it('checks an open HTTP server without its saved key and keeps its models', async () => {
     startOpenLanServer();
     const { remoteServerManager, useRemoteServerStore } = loadApp();
     const saved = await remoteServerManager.addServer({
@@ -176,12 +179,25 @@ describe('a saved key on a private HTTP server', () => {
     await remoteServerManager.updateServer(saved.id, { apiKey: 'sk-lan' });
 
     await expect(remoteServerManager.testConnection(saved.id)).resolves.toMatchObject({
-      success: false,
-      error: HTTP_API_KEY_ERROR,
+      success: true,
     });
     expect(knownModel(useRemoteServerStore, saved.id)).toBeTruthy();
 
     await remoteServerManager.updateServer(saved.id, { apiKey: '' });
     await expect(remoteServerManager.testConnection(saved.id)).resolves.toMatchObject({ success: true });
   });
+
+  it.each([401, 403])('explains the HTTPS rule only after HTTP answers %s', async status => {
+    const { HTTP_API_KEY_ERROR } = require('../../../src/services/remoteTransportPolicy');
+    startOpenLanServer(status);
+    const { remoteServerManager } = loadApp();
+    const saved = await remoteServerManager.addServer({
+      name: 'Private keyed server', endpoint: LAN_ENDPOINT,
+      providerType: 'openai-compatible', apiKey: 'sk-lan',
+    });
+    await expect(remoteServerManager.testConnection(saved.id)).resolves.toMatchObject({
+      success: false, error: HTTP_API_KEY_ERROR,
+    });
+  });
+
 });
