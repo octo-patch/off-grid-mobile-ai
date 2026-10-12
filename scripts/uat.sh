@@ -27,6 +27,9 @@ set -euo pipefail
 # upload that was completed manually. It uploads only the IPA, then commits,
 # tags, pushes, and creates the GitHub prerelease.
 #
+# By default HEAD must equal origin/main. Set RELEASE_BRANCH explicitly to use another ref.
+# ../shared must be clean and at origin/main; its commit is recorded in the beta tag.
+#
 # Build → upload → THEN commit/tag/push, so a failed build never leaves a dangling tag.
 # Credentials come from fastlane/.env (see fastlane/.env.example). On a Mac whose keychain
 # already holds the distribution cert, export SKIP_KEYCHAIN_IMPORT=1.
@@ -53,6 +56,16 @@ command -v bundle >/dev/null || error "bundler not installed (bundle install)"
 # Ignore fastlane/README.md — fastlane regenerates it on every run, so it is dirty by the time a
 # second build starts (and after any prior run). It is not source we build from.
 [ -z "$(git status --porcelain | grep -vE 'fastlane/README\.md$' || true)" ] || error "Working tree is dirty. Commit or stash first."
+git fetch --no-recurse-submodules --quiet origin main || error "Could not refresh origin/main"
+if [ -z "${RELEASE_BRANCH:-}" ]; then
+  [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || error "HEAD must equal origin/main. Set RELEASE_BRANCH explicitly to build another release branch."
+fi
+SHARED_DIR="$ROOT_DIR/../shared"
+[ -d "$SHARED_DIR/.git" ] || [ -f "$SHARED_DIR/.git" ] || error "Shared repository not found at ../shared"
+[ -z "$(git -C "$SHARED_DIR" status --porcelain)" ] || error "../shared is dirty. Commit or stash its changes first."
+git -C "$SHARED_DIR" fetch --no-recurse-submodules --quiet origin main || error "Could not refresh ../shared origin/main"
+SHARED_SHA=$(git -C "$SHARED_DIR" rev-parse HEAD)
+[ "$SHARED_SHA" = "$(git -C "$SHARED_DIR" rev-parse origin/main)" ] || error "../shared HEAD must equal origin/main. Update ../shared before building."
 [ "$DO_ANDROID" = 0 ] || { [ -f android/gradlew ] || error "android/gradlew not found"; [ -n "${ANDROID_HOME:-}" ] || error "ANDROID_HOME not set"; }
 [ "$DO_IOS" = 0 ]     || command -v xcodebuild >/dev/null || error "xcodebuild not installed"
 
@@ -195,7 +208,8 @@ git commit -m "chore(beta): ${BETA_VERSION} (build ${BUILD_NUMBER}) [skip ci]"
 BUILD_LINE=$(node scripts/lib/version.js build-line "$BUILD_NUMBER") || error "Could not format the build annotation for ${BUILD_NUMBER}"
 git tag -a "$TAG" -m "Off Grid ${BETA_VERSION}
 
-${BUILD_LINE}"
+${BUILD_LINE}
+Shared: ${SHARED_SHA}"
 git push && git push origin "$TAG"
 
 # Attach both the installable APK (for sideload testers) and the AAB (Play-store artifact),
@@ -212,7 +226,7 @@ fi
 # Carry the tested build id into the prerelease body too (redundant with the annotated tag),
 # so `gh release view "$TAG"` is a second recovery path if the local tag object is missing.
 printf '\n\n%s\n' "$BUILD_LINE" >> "$NOTES_FILE"
-gh release create "$TAG" "${GH_ARGS[@]}" --prerelease --title "Off Grid ${BETA_VERSION} (beta)" --notes-file "$NOTES_FILE"
+gh release create "$TAG" ${GH_ARGS[@]+"${GH_ARGS[@]}"} --prerelease --title "Off Grid ${BETA_VERSION} (beta)" --notes-file "$NOTES_FILE"
 
 # Announce the beta in Slack — fail-soft, a chat message must never fail a shipped build. Webhook comes
 # from .env.keygen locally (mirrors the SLACK_WEBHOOK_URL repo secret the release workflows use);

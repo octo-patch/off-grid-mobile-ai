@@ -1,8 +1,23 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { MarkdownText } from '../../MarkdownText';
-import { prepareMessageForSpeech } from '../../../utils/messageContent';
 import type { ParsedContent } from '../types';
+
+/** Keep code verbatim while removing the formatting around the reasoning preview. */
+function thinkingPreview(text: string): string {
+  return text.split(/(```[^\n]*\n[\s\S]*?(?:```|$)|`[^`\n]+`)/g)
+    .map(part => {
+      if (part.startsWith('```')) return part.replace(/^```[^\n]*\n/, '').replace(/```$/, '');
+      if (part.startsWith('`')) return part.slice(1, -1);
+      return part
+        .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+        .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+        .replace(/(^|\W)_{1,3}([^_]+(?:_[^_]+)*)_{1,3}(?=\W|$)/g, '$1$2');
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 interface ThinkingBlockProps {
   parsedContent: ParsedContent;
@@ -51,7 +66,7 @@ export function ThinkingBlock({
                 numberOfLines={2}
                 ellipsizeMode="tail"
               >
-                {prepareMessageForSpeech(parsedContent.thinking).replace(/\s+/g, ' ').trim()}
+                {thinkingPreview(parsedContent.thinking)}
               </Text>
             </View>
           )}

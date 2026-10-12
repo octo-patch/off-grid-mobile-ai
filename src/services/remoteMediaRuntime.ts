@@ -27,6 +27,20 @@ function endpoint(server: RemoteServer, path: string): string {
   return `${base}${base.endsWith('/v1') && path.startsWith('/v1/') ? path.slice(3) : path}`;
 }
 
+/** HTTP refusals and completed Desktop jobs use the same memory-override contract. */
+function throwRemoteError(detail: string, message: string): never {
+  const marker = 'OFFGRID_IMAGE_MEMORY_LIMIT:';
+  let code: unknown;
+  try {
+    const body = JSON.parse(detail) as { error?: { code?: unknown }; code?: unknown };
+    code = body.error?.code ?? body.code;
+  } catch { /* Plain-text failures can still carry the memory marker. */ }
+  if (code === 'OFFGRID_IMAGE_MEMORY_LIMIT' || message.includes(marker)) {
+    throw Object.assign(new OverridableMemoryError(message.replace(marker, '').trim()), { remote: true });
+  }
+  throw new Error(message);
+}
+
 async function request<T>(
   input: {
     server: RemoteServer;
@@ -66,16 +80,7 @@ async function request<T>(
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       const message = remoteHttpErrorMessage(detail, response.status);
-      try {
-        const body = JSON.parse(detail) as { error?: { code?: unknown }; code?: unknown };
-        const marker = 'OFFGRID_IMAGE_MEMORY_LIMIT:';
-        if ((body.error?.code ?? body.code) === 'OFFGRID_IMAGE_MEMORY_LIMIT' || message.includes(marker)) {
-          throw Object.assign(new OverridableMemoryError(message.replace(marker, '').trim()), { remote: true });
-        }
-      } catch (error) {
-        if (error instanceof OverridableMemoryError) throw error;
-      }
-      throw new Error(message);
+      throwRemoteError(detail, message);
     }
     // Keep caller cancellation attached until the response body is
     // consumed. A successful header is not a completed image/audio transfer.
@@ -177,7 +182,7 @@ export const remoteMediaRuntime = {
           }, response => response.json() as Promise<{
             status: string;
             result?: ImagePayload;
-            error?: { message?: string };
+            error?: { message?: string; code?: string };
             progress?: { step: number; total: number };
           }>);
           if (state.progress) options.onImageProgress?.(state.progress.step, state.progress.total);
@@ -186,7 +191,9 @@ export const remoteMediaRuntime = {
             result = state.result ?? {};
             break;
           }
-          if (state.status === 'failed') throw new Error(state.error?.message ?? 'Remote image generation failed');
+          if (state.status === 'failed') {
+            throwRemoteError(JSON.stringify(state), state.error?.message ?? 'Remote image generation failed');
+          }
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {
               options.signal?.removeEventListener('abort', abort);

@@ -34,6 +34,7 @@ export const GalleryScreen: React.FC = () => {
     imageGenState,
     displayImages,
     handleDelete,
+    handleRemoveUnavailable,
     toggleSelectMode,
     toggleImageSelection,
     handleDeleteSelected,
@@ -58,6 +59,7 @@ export const GalleryScreen: React.FC = () => {
           setSelectedImage(item);
         }
       }}
+      onRemove={() => handleRemoveUnavailable(item)}
       onLongPress={() => {
         if (!isSelectMode) {
           toggleSelectMode();
@@ -81,6 +83,8 @@ export const GalleryScreen: React.FC = () => {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.headerButton, selectedIds.size === 0 && styles.headerButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Delete selected images"
               onPress={handleDeleteSelected}
               disabled={selectedIds.size === 0}
             >

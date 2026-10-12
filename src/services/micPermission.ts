@@ -10,13 +10,15 @@
  *   Android. Neither shows a prompt.
  * - Android reports a "Don't ask again" denial as Undetermined (it cannot tell it apart from
  *   never-asked). The request paths report a refused request here, so that case reads as denied
- *   too, until the OS says Granted again.
+ *   too, across app launches, until the OS says Granted again.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AudioManager } from 'react-native-audio-api';
 import logger from '../utils/logger';
 
 type Listener = (denied: boolean) => void;
 
+const DENIED_STORAGE_KEY = '@offgrid/mic-permission-refused';
 let deniedByRequest = false;
 const listeners = new Set<Listener>();
 
@@ -33,13 +35,25 @@ export async function isMicPermissionDenied(): Promise<boolean> {
     logger.warn('[MicPermission] could not read the permission:', error);
     return false;
   }
-  if (status === 'Granted') deniedByRequest = false;
+  try {
+    if (status === 'Granted') {
+      deniedByRequest = false;
+      await AsyncStorage.removeItem(DENIED_STORAGE_KEY);
+    } else if (status === 'Undetermined') {
+      deniedByRequest = deniedByRequest || (await AsyncStorage.getItem(DENIED_STORAGE_KEY)) === 'true';
+    }
+  } catch (error) {
+    logger.warn('[MicPermission] could not read or save the denial:', error);
+  }
   return status === 'Denied' || (status === 'Undetermined' && deniedByRequest);
 }
 
 /** A permission request was refused. Called by the paths that request the mic. */
 export function noteMicPermissionRefused(): void {
   deniedByRequest = true;
+  AsyncStorage.setItem(DENIED_STORAGE_KEY, 'true').catch(error => {
+    logger.warn('[MicPermission] could not save the denial:', error);
+  });
   emit(true);
 }
 

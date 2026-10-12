@@ -509,10 +509,10 @@ describe('KokoroEngine.extra — uncovered branches', () => {
     expect(engine.getBridgeComponent()).not.toBeNull();
   });
 
-  it('refreshDiskStatus mirrors isFullyDownloaded (hydrated true / cleared false)', async () => {
+  it('refreshDiskStatus rejects a saved downloaded flag when the files are absent', async () => {
     const engine = new KokoroEngine();
     await expect(engine.refreshDiskStatus()).resolves.toBe(false);
     engine.hydrateDownloaded(true);
-    await expect(engine.refreshDiskStatus()).resolves.toBe(true);
+    await expect(engine.refreshDiskStatus()).resolves.toBe(false);
   });
 });

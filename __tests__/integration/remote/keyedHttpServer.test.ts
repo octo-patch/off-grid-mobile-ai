@@ -1,8 +1,7 @@
 /**
  * A saved API key on a private HTTP server (backlog item 1b).
  *
- * Keys are only sent over HTTPS, so on plain HTTP the app never uses the saved key. Every check
- * must say so instead of reporting "Connected" or "the server rejected your key". The real
+ * Keys are only sent over HTTPS, so on plain HTTP the app never uses the saved key. Open servers connect without the key; only a 401/403 reports the HTTPS rule. The real
  * endpoint check and model discovery run; the remote server is the only fake, answering at the
  * fetch boundary the way a keyed llama.cpp/Ollama server on the LAN would.
  */
@@ -15,11 +14,15 @@ const ENDPOINT = 'http://192.168.1.40:11434';
 const realFetch = globalThis.fetch;
 
 /** A LAN server that lists its models openly but refuses every other request without a key. */
-function startLanServer(): { requests: string[] } {
+function startLanServer(status = 200): { requests: string[] } {
   const requests: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     requests.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+    if (new Headers(init?.headers).has('Authorization')) {
+      return new Response('Key sent over HTTP', { status: 400 });
+    }
+    if (status !== 200) return new Response('Authentication required', { status });
     if (url.pathname === '/v1/models') {
       return new Response(JSON.stringify({ models: [{ name: 'llama3.2:3b' }] }), {
         status: 200,
@@ -45,13 +48,20 @@ afterEach(() => {
 });
 
 describe('a saved key on a private HTTP server', () => {
-  it('fails the connection check with the HTTPS message, without contacting the server', async () => {
+  it('connects to an open server without sending its saved key', async () => {
     const lan = startLanServer();
 
     const result = await testEndpoint(ENDPOINT, 5000, 'saved-key');
 
-    expect(result).toEqual({ success: false, error: HTTP_API_KEY_ERROR });
-    expect(lan.requests).toEqual([]);
+    expect(result.success).toBe(true);
+    expect(lan.requests).toEqual(['GET /v1/models']);
+  });
+
+  it.each([401, 403])('shows the HTTPS message after the server answers %s', async status => {
+    const lan = startLanServer(status);
+    const result = await testEndpoint(ENDPOINT, 5000, 'saved-key');
+    expect(result).toEqual({ success: false, error: HTTP_API_KEY_ERROR, latency: expect.any(Number) });
+    expect(lan.requests).toEqual(['GET /v1/models']);
   });
 
   it('still connects to the same server when no key is saved', async () => {
