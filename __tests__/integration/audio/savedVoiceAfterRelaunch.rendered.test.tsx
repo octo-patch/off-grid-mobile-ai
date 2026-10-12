@@ -16,14 +16,9 @@
  * rendered surface, so this test reads it off the native useTextToSpeech leaf (the sanctioned audio
  * exception): each load records the voice file it was configured with, each stream the text it spoke.
  */
-import { setupChatScreen } from '../../harness/chatHarness';
-import { installNativeBoundary, requireRTL, GB } from '../../harness/nativeBoundary';
+import { launchVoiceApp } from '../../harness/proHarness';
 
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: () => {}, goBack: () => {}, setOptions: () => {}, addListener: () => () => {} }),
-  useRoute: () => require('../../harness/chatHarness').routeHolder,
-  useFocusEffect: () => {}, useIsFocused: () => true,
-}));
+jest.unmock('@react-navigation/native');
 
 interface TtsRuntimeRecord {
   /** Voice file each live (preventLoad=false) runtime load was configured with, e.g. "am_michael". */
@@ -40,74 +35,31 @@ interface TtsRuntimeRecord {
 function recordTtsRuntime(): TtsRuntimeRecord {
   const record: TtsRuntimeRecord = { loads: [], spoken: [] };
   const executorch = require('react-native-executorch');
-  (executorch.useTextToSpeech as jest.Mock).mockImplementation(
+  executorch.useTextToSpeech =
     (config: { voiceSource?: string }, opts?: { preventLoad?: boolean }) => {
       const voice = /\/([^/]+)\.[^/.]+$/.exec(String(config.voiceSource))?.[1] ?? String(config.voiceSource);
       if (!opts?.preventLoad && record.loads[record.loads.length - 1] !== voice) record.loads.push(voice);
       return {
-        isReady: true,
-        downloadProgress: 1,
+        isReady: !opts?.preventLoad,
+        downloadProgress: opts?.preventLoad ? 0 : 1,
         error: null,
         stream: async ({ text }: { text: string }) => { record.spoken.push({ voice, text }); },
         streamStop: () => {},
       };
-    },
-  );
+    };
   return record;
-}
-
-/**
- * Relaunch the app the way the harness models it: a fresh module graph over the same persisted
- * AsyncStorage, so every store rehydrates from what launch 1 saved and Pro activates again. The disk
- * outlives the process, so the text model file launch 1 had is placed back at the same path. Then the
- * person opens the chat they were in (the chat list hands the screen its id) and the screen mounts anew.
- */
-async function relaunchIntoChat(conversationId: string, modelFileName: string) {
-  const boundary = installNativeBoundary({ fs: true, ram: { platform: 'android', totalBytes: 12 * GB, availBytes: 8 * GB } });
-  boundary.fs!.seedFile(`${boundary.fs!.DocumentDirectoryPath}/models/${modelFileName}`, 500 * 1024 * 1024);
-  // Storage boundary: on a cold launch the persisted store takes a moment to answer. Reads return what
-  // launch 1 wrote, just not synchronously-fast, so anything that reads settings before hydration
-  // finishes sees the defaults - exactly the window a cold start has on device.
-  const AsyncStorage =
-    require('@react-native-async-storage/async-storage').default ??
-    require('@react-native-async-storage/async-storage');
-  const readNow = (AsyncStorage.getItem as jest.Mock).getMockImplementation()!;
-  (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
-    await new Promise(r => setTimeout(r, 40));
-    return readNow(key);
-  });
-  const React = require('react');
-  const rtl = requireRTL();
-  const { useAppStore, useChatStore } = require('../../../src/stores');
-  const { installPro } = require('../../harness/proHarness');
-  await installPro();
-  await rtl.waitFor(() => expect(useChatStore.getState().conversations.some((c: { id: string }) => c.id === conversationId)).toBe(true));
-  await rtl.waitFor(() => expect(useAppStore.getState().activeModelId).toBe('m'));
-  require('../../harness/chatHarness').routeHolder.params = { conversationId };
-  const { ChatScreen } = require('../../../src/screens/ChatScreen');
-  const { getSlot, SLOTS } = require('../../../src/bootstrap/slotRegistry');
-  const AppRoot = getSlot(SLOTS.appRoot);
-  return { rtl, React, ChatScreen, AppRoot };
 }
 
 describe('the saved voice survives a relaunch', () => {
   it('speaks with the voice picked before the relaunch and shows it selected in the picker', async () => {
     // ── Launch 1: chat, download the voice model, pick Michael ─────────────────────────────────
-    const first = await setupChatScreen({ engine: 'litert', platform: 'android', pro: true });
-    let conversationId: string;
+    const first = await launchVoiceApp();
     {
-      const { React, rtl } = first;
-      const { VoiceModelsPanel } = require('../../../pro/audio/ui/VoiceModelsPanel');
-      const panel = rtl.render(React.createElement(VoiceModelsPanel, { showRemoteModels: false }));
-      rtl.fireEvent.press(await rtl.waitFor(() => panel.getByTestId('voice-model-kokoro-download')));
-      await rtl.waitFor(() => expect(panel.getByTestId('voice-model-kokoro-delete')).toBeTruthy(), { timeout: 6000 });
-      panel.unmount();
-
-      const view = first.render();
-      await first.send('what is the capital of France?', { content: 'The capital of France is Paris.' });
-      await rtl.waitFor(() => expect(view.queryByText(/The capital of France is Paris\./)).not.toBeNull());
-      await rtl.waitFor(() => expect(view.queryByTestId('stop-button')).toBeNull());
-      conversationId = first.conversationId!;
+      const { rtl, view } = first;
+      await first.voicePanel();
+      await first.downloadVoice();
+      await first.chat();
+      await first.send('what is the capital of France?', 'The capital of France is Paris.');
 
       rtl.fireEvent.press(view.getByTestId('chat-mode-toggle'));
       await rtl.waitFor(() => expect(view.getByLabelText('Switch to Text mode')).toBeTruthy());
@@ -121,16 +73,18 @@ describe('the saved voice survives a relaunch', () => {
 
       rtl.fireEvent.press(view.getByTestId('chat-mode-toggle'));
       await rtl.waitFor(() => expect(view.getByLabelText('Switch to Voice mode')).toBeTruthy());
-      await first.settle(50); // let persist flush to AsyncStorage
-      view.unmount();
+      await first.close();
     }
 
     // ── Relaunch: fresh module graph, same persisted storage, back into the same chat ───────────
-    const { rtl, React, ChatScreen, AppRoot } = await relaunchIntoChat(conversationId, 'gemma.litertlm');
-    const runtime = recordTtsRuntime();
-    const view = rtl.render(React.createElement(React.Fragment, null,
-      React.createElement(AppRoot, {}), React.createElement(ChatScreen, {})));
-    await rtl.waitFor(() => expect(view.queryByText(/The capital of France is Paris\./)).not.toBeNull());
+    let runtime!: TtsRuntimeRecord;
+    const next = await launchVoiceApp({
+      files: first.cache.files, preserveStorage: true, delayedStorage: true,
+      configureRuntime: () => { runtime = recordTtsRuntime(); },
+    });
+    const { rtl, view } = next;
+    rtl.fireEvent.press(await view.findByText('what is the capital of France?'));
+    await view.findByText('The capital of France is Paris.');
 
     // Before: nothing has been spoken in this launch.
     expect(runtime.spoken).toHaveLength(0);
@@ -155,10 +109,6 @@ describe('the saved voice survives a relaunch', () => {
     expect(view.queryByRole('button', { name: 'Heart', selected: true })).toBeNull();
     expect(view.getByRole('button', { name: 'Heart' })).toBeTruthy();
 
-    // Pro starts sync on this launch too. Let that start finish before the suite ends, so none of it
-    // runs after the test environment is torn down.
-    const { useSyncStore } = require('../../../pro/sync/syncStore');
-    await rtl.waitFor(() => expect(useSyncStore.getState().status).not.toBe('starting'), { timeout: 8000 });
-    view.unmount();
+    await next.close();
   });
 });
