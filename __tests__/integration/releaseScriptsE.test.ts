@@ -1,6 +1,6 @@
 /** Real release scripts and Git repos. Store builds and hosted release APIs are external boundaries. */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -47,7 +47,7 @@ beforeEach(() => {
   env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_BRANCH: '', SLACK_WEBHOOK_URL: '', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
   // No credentials or real uploads: these executables are the build/store/network boundary.
   writeFileSync(join(bin, 'bundle'), '#!/bin/sh\nif [ "$4" = build ]; then mkdir -p build; echo ipa > build/OffgridMobile.ipa; fi\n', { mode: 0o755 });
-  writeFileSync(join(bin, 'gh'), '#!/bin/sh\nif [ "$2" = download ]; then exit 1; fi\nexit 0\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh\nif [ "$2" = download ]; then exit 1; fi\necho "$*" >> "${join(root, 'gh-calls.log')}"\nexit 0\n`, { mode: 0o755 });
   writeFileSync(join(bin, 'xcodebuild'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho "Release fixture notes"\n', { mode: 0o755 });
   shared = repository('shared');
@@ -119,6 +119,14 @@ it('M4: refuses a clean shared commit that differs from origin/main', () => {
   const result = run('uat', ['--ios']);
   expect(result.status).not.toBe(0);
   expect(result.stdout).toContain('../shared HEAD must equal origin/main');
+});
+
+it('attaches the IPA that went to TestFlight to the GitHub prerelease', () => {
+  const result = run('uat', ['--ios']);
+  if (result.status !== 0) throw new Error(result.stdout + result.stderr);
+  const create = readFileSync(join(root, 'gh-calls.log'), 'utf8').split('\n').find(line => line.startsWith('release create'));
+  expect(create).toContain('v0.0.2-beta.1');
+  expect(create).toContain('OffgridMobile-0.0.2-beta.1.ipa');
 });
 
 it.each(['', 'release/candidate'])('M3/M4: records shared source in the beta tag (explicit branch: %s)', branch => {
