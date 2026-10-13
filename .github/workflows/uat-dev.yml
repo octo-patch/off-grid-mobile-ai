@@ -147,3 +147,16 @@ jobs:
           # only exists on a developer machine, and silently skips the message.
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: bash scripts/uat.sh $UAT_PLATFORM_ARG
+      - name: Keep the built APK, AAB and IPA
+        # Saved even when a later uat.sh step fails (e.g. the push after the store uploads), so the
+        # exact files sent to Play and TestFlight can still be attached to the GitHub release.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-builds
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/bundle/release/app-release.aab
+            build/OffgridMobile.ipa
+          if-no-files-found: warn
+          retention-days: 30

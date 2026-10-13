@@ -212,16 +212,20 @@ ${BUILD_LINE}
 Shared: ${SHARED_SHA}"
 git push && git push origin "$TAG"
 
-# Attach both the installable APK (for sideload testers) and the AAB (Play-store artifact),
-# version-named so the release page is self-describing.
+# Attach the installable APK (for sideload testers), the AAB (Play-store artifact) and the IPA
+# (the TestFlight upload), version-named so the release page is self-describing.
 GH_ARGS=()
 APK_DST="$ROOT_DIR/OffgridMobile-${BETA_VERSION}.apk"
 AAB_DST="$ROOT_DIR/OffgridMobile-${BETA_VERSION}.aab"
+IPA_DST="$ROOT_DIR/OffgridMobile-${BETA_VERSION}.ipa"
 if [ "$DO_ANDROID" = 1 ]; then
   [ -f android/app/build/outputs/apk/release/app-release.apk ] && \
     { cp android/app/build/outputs/apk/release/app-release.apk "$APK_DST"; GH_ARGS+=("$APK_DST"); }
   [ -f android/app/build/outputs/bundle/release/app-release.aab ] && \
     { cp android/app/build/outputs/bundle/release/app-release.aab "$AAB_DST"; GH_ARGS+=("$AAB_DST"); }
+fi
+if [ "$DO_IOS" = 1 ]; then
+  [ -f build/OffgridMobile.ipa ] && { cp build/OffgridMobile.ipa "$IPA_DST"; GH_ARGS+=("$IPA_DST"); }
 fi
 # Carry the tested build id into the prerelease body too (redundant with the annotated tag),
 # so `gh release view "$TAG"` is a second recovery path if the local tag object is missing.
@@ -236,7 +240,7 @@ SLACK_WEBHOOK_URL="${SLACK_WEBHOOK_URL:-$(sed -n 's/^SLACK_WEBHOOK_URL=//p' "$RO
   RELEASE_URL="$(gh release view "$TAG" --json url -q .url 2>/dev/null)" NOTES_FILE="$NOTES_FILE" \
   node "$ROOT_DIR/scripts/notify-slack-release.mjs" || true
 
-rm -f "$NOTES_FILE" "${ANDROID_CHANGELOG:-}" "$APK_DST" "$AAB_DST"
+rm -f "$NOTES_FILE" "${ANDROID_CHANGELOG:-}" "$APK_DST" "$AAB_DST" "$IPA_DST"
 echo ""
 info "${BOLD}Beta ${BETA_VERSION} shipped.${NC}"
 [ "$DO_IOS" = 1 ]     && info "  iOS:     TestFlight (App Store Connect → TestFlight)"
