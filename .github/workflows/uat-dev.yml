@@ -143,4 +143,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           FASTLANE_SKIP_UPDATE_CHECK: '1'
           FASTLANE_HIDE_CHANGELOG: '1'
+          # uat.sh announces the beta in Slack; without this it falls back to .env.keygen, which
+          # only exists on a developer machine, and silently skips the message.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: bash scripts/uat.sh $UAT_PLATFORM_ARG
