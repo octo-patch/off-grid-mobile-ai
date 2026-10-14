@@ -501,7 +501,7 @@ export const useChatStore = create<ChatState>()(
     {
       name: 'local-llm-chat-storage',
       storage: chatStorage.storage,
-      onRehydrateStorage: () => () => chatStorage.markHydrated(),
+      onRehydrateStorage: () => (_state, error) => { if (!error) chatStorage.markHydrated(); },
       version: CHAT_STORAGE_VERSION,
       migrate: migratePersistedChatState,
       partialize: (state): PersistedChatState => ({

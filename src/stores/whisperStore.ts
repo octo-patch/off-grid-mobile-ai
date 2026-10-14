@@ -281,7 +281,7 @@ export const useWhisperStore = create<WhisperState>()(
     {
       name: 'local-llm-whisper-storage',
       storage: whisperStorage.storage,
-      onRehydrateStorage: () => () => whisperStorage.markHydrated(),
+      onRehydrateStorage: () => (_state, error) => { if (!error) whisperStorage.markHydrated(); },
       partialize: (state): PersistedWhisperState => ({
         downloadedModelId: state.downloadedModelId,
         transcriptionLanguage: state.transcriptionLanguage,

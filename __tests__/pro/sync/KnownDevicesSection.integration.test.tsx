@@ -108,4 +108,36 @@ describe('<KnownDevicesSection/> action ownership', () => {
     );
     expect(ui.getByText(/Offline/)).toBeTruthy();
   });
+
+  it('drops a failed-reconnect message once the device connects', async () => {
+    const offline = savedDevice('mac-debug', 'OGAD: Mac (Debug)');
+    const section = (device: SyncManagedDevice) => (
+      <KnownDevicesSection
+        devices={[device]}
+        pairingDeviceId={null}
+        onPair={() => undefined}
+        onRepair={async () => 'reconnected'}
+        onDisconnect={async () => undefined}
+        onReconnect={async () => {
+          throw new Error('connection timed out after 5000 ms');
+        }}
+        onSetManualEndpoint={() => undefined}
+        manualEndpointDeviceIds={[]}
+        onSendModel={() => undefined}
+        onForget={async () => undefined}
+        reachabilityErrors={{}}
+      />
+    );
+    const ui = render(section(offline));
+
+    fireEvent.press(ui.getByTestId('sync-reconnect-mac-debug'));
+    expect(
+      await ui.findByText(/Could not reach OGAD: Mac \(Debug\)/),
+    ).toBeTruthy();
+
+    // The peer comes back on its own (it was busy, not gone): the row now reads Connected.
+    ui.rerender(section({ ...offline, state: 'connected', onNetwork: true }));
+
+    expect(ui.queryByText(/Could not reach/)).toBeNull();
+  });
 });

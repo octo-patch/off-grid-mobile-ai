@@ -118,14 +118,17 @@ describe('Embedding Flow Integration', () => {
       const mlBuffer = new Float32Array(mlEmbed).buffer;
       const cookBuffer = new Float32Array(cookEmbed).buffer;
 
-      mockExecuteSync.mockImplementation((sql: string) => {
+      const rows = [
+        { embedding_id: 1, chunk_rowid: 1, doc_id: 1, name: 'ml.pdf', content: 'Machine learning algorithms', position: 0, embedding: mlBuffer },
+        { embedding_id: 2, chunk_rowid: 2, doc_id: 2, name: 'recipes.pdf', content: 'Chocolate cake recipe', position: 0, embedding: cookBuffer },
+      ];
+      mockExecuteSync.mockImplementation((sql: string, params?: unknown[]) => {
         if (typeof sql === 'string' && sql.includes('rag_embeddings') && sql.includes('SELECT')) {
-          return {
-            rows: [
-              { chunk_rowid: 1, doc_id: 1, name: 'ml.pdf', content: 'Machine learning algorithms', position: 0, embedding: mlBuffer },
-              { chunk_rowid: 2, doc_id: 2, name: 'recipes.pdf', content: 'Chocolate cake recipe', position: 0, embedding: cookBuffer },
-            ],
-          };
+          // The per-document vector read is scoped by doc_id; the project read is not.
+          if (sql.includes('e.doc_id = ?')) {
+            return { rows: rows.filter(row => row.doc_id === params?.[0]) };
+          }
+          return { rows };
         }
         return { rows: [], insertId: 0, rowsAffected: 0 };
       });
