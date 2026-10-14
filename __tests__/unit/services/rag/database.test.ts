@@ -152,6 +152,34 @@ describe('RagDatabase', () => {
       expect(results[0].content).toBe('hello');
       expect(Array.from(results[0].embedding)).toHaveLength(2);
     });
+
+    it.each([
+      ['aligned', 4],
+      ['unaligned', 3],
+    ])(
+      'reads only its own bytes when a BLOB is a %s slice of a larger buffer',
+      async (_label, offset) => {
+        await ragDatabase.ensureReady();
+        const own = new Uint8Array(new Float32Array([0.5, -0.25]).buffer);
+        const pooled = new Uint8Array(offset + own.length + 8).fill(0xff);
+        pooled.set(own, offset);
+        mockExecuteSync.mockReturnValue({
+          rows: [
+            {
+              chunk_rowid: 7,
+              doc_id: 99,
+              name: 'pooled.txt',
+              content: 'pooled',
+              position: 0,
+              embedding: pooled.subarray(offset, offset + own.length),
+            },
+          ],
+        });
+
+        const results = ragDatabase.getEmbeddingsByProject(`pooled-${offset}`);
+        expect(Array.from(results[0].embedding)).toEqual([0.5, -0.25]);
+      },
+    );
   });
 
   describe('hasEmbeddingsForDocument', () => {

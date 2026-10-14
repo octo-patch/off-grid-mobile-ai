@@ -248,10 +248,23 @@ class RagDatabase {
     return new Float32Array(embedding).buffer;
   }
 
-  /** A view over the BLOB's bytes; no element copy. */
+  /**
+   * A view over the BLOB's bytes; no element copy. A typed-array BLOB may be a slice of a larger
+   * (pooled) buffer, so only its own byteOffset/byteLength are read; an unaligned slice is copied.
+   */
   private blobToEmbedding(blob: any): Float32Array {
-    if (isArrayBuffer(blob)) return new Float32Array(blob);
-    if (isArrayBuffer(blob?.buffer)) return new Float32Array(blob.buffer);
+    if (isArrayBuffer(blob)) {
+      return new Float32Array(blob, 0, Math.floor(blob.byteLength / 4));
+    }
+    if (isArrayBuffer(blob?.buffer) && typeof blob.byteOffset === 'number') {
+      const length = Math.floor(blob.byteLength / 4);
+      if (blob.byteOffset % 4 === 0) {
+        return new Float32Array(blob.buffer, blob.byteOffset, length);
+      }
+      return new Float32Array(
+        blob.buffer.slice(blob.byteOffset, blob.byteOffset + length * 4),
+      );
+    }
     return EMPTY_VECTOR;
   }
 
