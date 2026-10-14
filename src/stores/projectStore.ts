@@ -193,7 +193,7 @@ export const useProjectStore = create<ProjectState>()(
     {
       name: 'local-llm-project-storage',
       storage: projectStorage.storage,
-      onRehydrateStorage: () => () => projectStorage.markHydrated(),
+      onRehydrateStorage: () => (_state, error) => { if (!error) projectStorage.markHydrated(); },
       partialize: (state): PersistedProjectState => ({ projects: state.projects }),
     },
   ),

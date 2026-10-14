@@ -475,7 +475,7 @@ export const useAppStore = create<AppState>()(
     {
       name: 'local-llm-app-storage',
       storage: appStorage.storage,
-      onRehydrateStorage: () => () => appStorage.markHydrated(),
+      onRehydrateStorage: () => (_state, error) => { if (!error) appStorage.markHydrated(); },
       merge: (persisted, current) =>
         migratePersistedState(persisted, current, {
           defaultSettings: DEFAULT_SETTINGS,

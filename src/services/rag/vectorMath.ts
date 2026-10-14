@@ -1,4 +1,7 @@
-export function dotProduct(a: number[], b: number[]): number {
+/** Plain arrays and typed arrays (stored embeddings are Float32Array views) score identically. */
+type Vector = ArrayLike<number>;
+
+export function dotProduct(a: Vector, b: Vector): number {
   let sum = 0;
   for (let i = 0; i < a.length; i++) {
     sum += a[i] * b[i];
@@ -6,7 +9,7 @@ export function dotProduct(a: number[], b: number[]): number {
   return sum;
 }
 
-export function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: Vector, b: Vector): number {
   let dot = 0;
   let normA = 0;
   let normB = 0;
@@ -25,7 +28,7 @@ export interface SimilarityResult {
   score: number;
 }
 
-export function topKSimilar(queryVec: number[], candidates: number[][], k: number): SimilarityResult[] {
+export function topKSimilar(queryVec: Vector, candidates: Vector[], k: number): SimilarityResult[] {
   const scored = candidates.map((vec, index) => ({
     index,
     score: cosineSimilarity(queryVec, vec),

@@ -18,7 +18,10 @@ export function createHydrationGatedStorage<S>(
   unchanged?: (previous: S, next: S) => boolean,
 ): HydrationGatedStorage<S> {
   let hydrated = false;
-  let lastWritten: S | undefined;
+  // Last snapshot known to be stored: read at hydration or confirmed by a resolved write.
+  let lastSaved: S | undefined;
+  // Newest snapshot handed to storage whose write has not settled yet.
+  let lastIssued: { state: S } | undefined;
   const pendingWrites = new Set<Promise<void>>();
   const json = createJSONStorage<S>(() => base);
   if (!json) throw new Error('JSON storage is unavailable');
@@ -27,27 +30,44 @@ export function createHydrationGatedStorage<S>(
     storage: {
       getItem: async name => {
         const value = await json.getItem(name);
-        lastWritten = value?.state;
+        lastSaved = value?.state;
         return value;
       },
       setItem: (name, value) => {
         if (!hydrated) return undefined;
-        if (
-          lastWritten !== undefined &&
-          unchanged?.(lastWritten, value.state)
-        ) {
+        const previous = lastIssued ? lastIssued.state : lastSaved;
+        if (previous !== undefined && unchanged?.(previous, value.state)) {
           return undefined;
         }
-        lastWritten = value.state;
+        const issued = { state: value.state };
+        lastIssued = issued;
+        const settle = () => {
+          if (lastIssued === issued) lastIssued = undefined;
+        };
         const result = json.setItem(name, value);
-        if (!result) return undefined;
-        const write = Promise.resolve(result).then(() => undefined);
+        if (!result) {
+          settle();
+          lastSaved = value.state;
+          return undefined;
+        }
+        const write = Promise.resolve(result).then(
+          () => {
+            settle();
+            lastSaved = value.state;
+          },
+          error => {
+            // Only a committed snapshot counts as saved, so the same content is written again later.
+            settle();
+            throw error;
+          },
+        );
         pendingWrites.add(write);
         return write.finally(() => pendingWrites.delete(write));
       },
       removeItem: name => {
         if (!hydrated) return undefined;
-        lastWritten = undefined;
+        lastIssued = undefined;
+        lastSaved = undefined;
         return json.removeItem(name);
       },
     },

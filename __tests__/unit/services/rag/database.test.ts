@@ -150,7 +150,7 @@ describe('RagDatabase', () => {
       const results = ragDatabase.getEmbeddingsByProject('proj1');
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe('hello');
-      expect(results[0].embedding).toBeInstanceOf(Array);
+      expect(Array.from(results[0].embedding)).toHaveLength(2);
     });
   });
 

@@ -90,7 +90,7 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'local-llm-auth-storage',
       storage: authStorage.storage,
-      onRehydrateStorage: () => () => authStorage.markHydrated(),
+      onRehydrateStorage: () => (_state, error) => { if (!error) authStorage.markHydrated(); },
       partialize: (state): PersistedAuthState => ({
         isEnabled: state.isEnabled,
         failedAttempts: state.failedAttempts,
