@@ -5,26 +5,33 @@ import {
   remoteAuthorizationHeaders,
   validateRemoteEndpoint,
 } from '../../../src/services/remoteTransportPolicy';
-import { fetchModelsFromServer } from '../../../src/stores/remoteServerHelpers';
 
 describe('remote transport policy', () => {
-  const originalFetch = global.fetch;
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-  it('allows unauthenticated private-LAN HTTP but never sends its bearer credential', () => {
-    expect(
-      remoteAuthorizationHeaders('http://192.168.1.30:7878', 'secret'),
-    ).toEqual({});
-    expect(
-      remoteAuthorizationHeaders('http://desktop.local:7878', 'secret'),
-    ).toEqual({});
-    expect(remoteAuthorizationHeaders('http://desktop:7878', 'secret')).toEqual(
-      {},
-    );
+  it('sends the saved key on private-LAN and Tailscale HTTP, where Desktop serves its gateway', () => {
+    for (const endpoint of [
+      'http://192.168.1.30:7878',
+      'http://desktop.local:7878',
+      'http://desktop:7878',
+      'http://100.101.102.103:7878',
+    ]) {
+      expect(remoteAuthorizationHeaders(endpoint, 'secret')).toEqual({
+        Authorization: 'Bearer secret',
+      });
+    }
   });
 
-  it('allows bearer credentials only on HTTPS', () => {
+  it('sends nothing when no key is saved', () => {
+    expect(remoteAuthorizationHeaders('http://192.168.1.30:7878')).toEqual({});
+    expect(remoteAuthorizationHeaders('http://192.168.1.30:7878', '')).toEqual({});
+  });
+
+  it('never sends a key to a public cleartext endpoint', () => {
+    expect(() =>
+      remoteAuthorizationHeaders('http://example.test:7878', 'secret'),
+    ).toThrow(PUBLIC_HTTP_REMOTE_ERROR);
+  });
+
+  it('sends bearer credentials on HTTPS', () => {
     expect(
       remoteAuthorizationHeaders('https://desktop.example.test', 'secret'),
     ).toEqual({
@@ -71,28 +78,5 @@ describe('remote transport policy', () => {
         false,
       ),
     ).toBe(false);
-  });
-
-  it('keeps model discovery on private-LAN HTTP unauthenticated', async () => {
-    const calls: Array<RequestInit | undefined> = [];
-    global.fetch = jest.fn(async (_url, init) => {
-      calls.push(init);
-      return {
-        ok: true,
-        json: async () => ({ object: 'list', data: [] }),
-      } as Response;
-    }) as typeof fetch;
-
-    await fetchModelsFromServer({
-      id: 'desktop',
-      name: 'Desktop',
-      endpoint: 'http://192.168.1.30:7878',
-      providerType: 'openai-compatible',
-      apiKey: 'secret',
-      createdAt: '2026-08-30',
-    });
-
-    expect(calls[0]?.headers).not.toHaveProperty('Authorization');
-    expect(calls[0]?.redirect).toBe('error');
   });
 });

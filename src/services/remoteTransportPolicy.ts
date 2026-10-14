@@ -3,14 +3,6 @@ import { isTailscaleIPv4 } from '../utils/network';
 export const PUBLIC_HTTP_REMOTE_ERROR =
   'Remote HTTP servers must use a private LAN or Tailscale address.';
 
-export const HTTP_API_KEY_ERROR =
-  'API keys are only sent over HTTPS. Use an https:// address for this server, or remove the key if the server does not need one.';
-
-/** Whether an HTTP authentication refusal needs to explain that the saved key requires HTTPS. */
-export function keyedHttpEndpoint(endpoint: string, apiKey?: string | null): boolean {
-  return !!apiKey && validateRemoteEndpoint(endpoint).protocol === 'http:';
-}
-
 function isPrivateHost(hostname: string): boolean {
   if (
     hostname === 'localhost' ||
@@ -50,15 +42,18 @@ export function validateRemoteEndpoint(endpoint: string): URL {
   throw new Error(PUBLIC_HTTP_REMOTE_ERROR);
 }
 
-/** Bearer credentials are only valid on TLS. Private LAN HTTP remains unauthenticated. */
+/**
+ * A saved key is sent to every endpoint the app accepts: HTTPS anywhere, and HTTP only on a
+ * private LAN or Tailscale address (validateRemoteEndpoint rejects public cleartext). Off Grid
+ * Desktop's gateway serves plain HTTP on the LAN, so a phone must send its key there for the
+ * gateway's API keys to work.
+ */
 export function remoteAuthorizationHeaders(
   endpoint: string,
   apiKey?: string | null,
 ): Record<string, string> {
-  const url = validateRemoteEndpoint(endpoint);
-  return apiKey && url.protocol === 'https:'
-    ? { Authorization: `Bearer ${apiKey}` }
-    : {};
+  validateRemoteEndpoint(endpoint);
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
 /** Automatic discovery must never carry a saved credential into cleartext. */
