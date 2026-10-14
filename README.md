@@ -17,6 +17,8 @@
 [![Slack](https://img.shields.io/badge/Slack-Join%20Community-4A154B?logo=slack)](https://join.slack.com/t/off-grid-mobile/shared_invite/zt-494gbuv5c-kj9tT7U0AS8Kq8UUO63_jw)
 [![Pro](https://img.shields.io/badge/Off%20Grid%20Pro-%24119%20lifetime%20or%20%247.99%20monthly-000000?style=flat)](https://getoffgridai.co/pay/)
 
+<a href="https://trendshift.io/repositories/22348?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22348" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22348/daily?language=TypeScript" alt="off-grid-ai%2FOGAM | Trendshift" width="250" height="55"/></a>
+
 </div>
 
 ---
