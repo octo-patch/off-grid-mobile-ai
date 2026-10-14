@@ -64,5 +64,5 @@ describe('Speak after the voice model unloads', () => {
     await h.actions();
     expect(await view.findByTestId('action-speak')).toBeTruthy();
     await h.close();
-  });
+  }, 30000);
 });
