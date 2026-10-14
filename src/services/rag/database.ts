@@ -249,8 +249,10 @@ class RagDatabase {
   }
 
   /**
-   * A view over the BLOB's bytes; no element copy. A typed-array BLOB may be a slice of a larger
-   * (pooled) buffer, so only its own byteOffset/byteLength are read; an unaligned slice is copied.
+   * A view over the BLOB's bytes; no element copy when the BLOB owns its whole buffer. A
+   * typed-array BLOB may be a slice of a larger (pooled) buffer: only its own
+   * byteOffset/byteLength are read, and the slice is copied so a cached vector never keeps the
+   * whole pooled buffer alive (the cache bound counts the vector's bytes).
    */
   private blobToEmbedding(blob: any): Float32Array {
     if (isArrayBuffer(blob)) {
@@ -258,8 +260,8 @@ class RagDatabase {
     }
     if (isArrayBuffer(blob?.buffer) && typeof blob.byteOffset === 'number') {
       const length = Math.floor(blob.byteLength / 4);
-      if (blob.byteOffset % 4 === 0) {
-        return new Float32Array(blob.buffer, blob.byteOffset, length);
+      if (blob.byteOffset === 0 && blob.buffer.byteLength === length * 4) {
+        return new Float32Array(blob.buffer, 0, length);
       }
       return new Float32Array(
         blob.buffer.slice(blob.byteOffset, blob.byteOffset + length * 4),

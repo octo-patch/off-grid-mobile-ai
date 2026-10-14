@@ -178,6 +178,10 @@ describe('RagDatabase', () => {
 
         const results = ragDatabase.getEmbeddingsByProject(`pooled-${offset}`);
         expect(Array.from(results[0].embedding)).toEqual([0.5, -0.25]);
+        // The vector owns exactly its own bytes, not the pooled buffer it was sliced from.
+        expect((results[0].embedding as Float32Array).buffer.byteLength).toBe(
+          own.length,
+        );
       },
     );
   });
