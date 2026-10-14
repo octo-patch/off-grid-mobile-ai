@@ -4,8 +4,6 @@
 
 import { isTailscaleIPv4 } from '../utils/network';
 import {
-  HTTP_API_KEY_ERROR,
-  keyedHttpEndpoint,
   REMOTE_FETCH_REDIRECT_POLICY,
   remoteAuthorizationHeaders,
 } from './remoteTransportPolicy';
@@ -163,10 +161,7 @@ export async function testEndpoint(
     if (response.status === 401 || response.status === 403) {
       return {
         success: false,
-        // On private HTTP the key is never sent, so the refusal is explained by the HTTPS rule.
-        error: keyedHttpEndpoint(url, apiKey)
-          ? HTTP_API_KEY_ERROR
-          : `The server rejected the API key (HTTP ${response.status}). Check the key for this server.`,
+        error: `The server rejected the API key (HTTP ${response.status}). Check the key for this server.`,
         latency,
       };
     }
@@ -185,9 +180,7 @@ export async function testEndpoint(
           if (altResponse.status === 401 || altResponse.status === 403) {
             return {
               success: false,
-              error: keyedHttpEndpoint(url, apiKey)
-                ? HTTP_API_KEY_ERROR
-                : `The server rejected the API key (HTTP ${altResponse.status}). Check the key for this server.`,
+              error: `The server rejected the API key (HTTP ${altResponse.status}). Check the key for this server.`,
               latency,
             };
           }

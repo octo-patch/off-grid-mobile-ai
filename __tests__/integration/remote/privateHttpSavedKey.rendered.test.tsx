@@ -1,4 +1,4 @@
-/** A private HTTP server may accept anonymous requests despite a key saved on the device. */
+/** A key saved for a private HTTP server is sent to it, as Off Grid Desktop's LAN gateway needs. */
 import { installNativeBoundary, requireRTL } from '../../harness/nativeBoundary';
 import { installKeyedServer, resetKeychain } from '../../harness/keyedRemoteServer';
 
@@ -10,7 +10,7 @@ it.each([200, 401, 403])('M7: the HTTP server response (%s) decides the connecti
   resetKeychain();
   await require('@react-native-async-storage/async-storage').clear();
   const server = installKeyedServer({
-    origin: 'http://192.168.1.40:8080', flavour: 'lmstudio', apiKey: '', modelId: 'qwen3-8b',
+    origin: 'http://192.168.1.40:8080', flavour: 'lmstudio', apiKey: 'lan-key', modelId: 'qwen3-8b',
   });
   const React = require('react');
   const rtl = requireRTL();
@@ -29,7 +29,7 @@ it.each([200, 401, 403])('M7: the HTTP server response (%s) decides the connecti
     rtl.fireEvent.press(await view.findByTestId('add-server'));
     rtl.fireEvent.changeText(await view.findByTestId('server-name'), 'Private studio');
     rtl.fireEvent.changeText(view.getByTestId('server-endpoint'), 'http://192.168.1.40:8080');
-    rtl.fireEvent.changeText(view.getByTestId('server-api-key'), 'saved-but-not-sent');
+    rtl.fireEvent.changeText(view.getByTestId('server-api-key'), 'lan-key');
     rtl.fireEvent.press(view.getByTestId('test-connection'));
     expect(await view.findByText(/Connected \(\d+ms\)/)).toBeTruthy();
     rtl.fireEvent.press(view.getByTestId('save-server'));
@@ -41,7 +41,7 @@ it.each([200, 401, 403])('M7: the HTTP server response (%s) decides the connecti
       expect(await view.findByText('Connected')).toBeTruthy();
       expect(view.queryByText('Could not connect')).toBeNull();
     } else {
-      expect(await view.findByText(/API keys are only sent over HTTPS/)).toBeTruthy();
+      expect(await view.findByText(/rejected the API key/)).toBeTruthy();
     }
   } finally {
     view.unmount();

@@ -75,6 +75,9 @@ describe('hydration-gated storage', () => {
     first.store.setState({ selected: 'boot-default' });
     first.store.persist.clearStorage();
     releaseRead();
+    // Zustand cancels the pending hydration when clearStorage is called. Read
+    // again to verify that the gate kept the saved value through that request.
+    await first.store.persist.rehydrate();
     await waitForHydration(first.store);
 
     expect(first.store.getState().selected).toBe('saved');

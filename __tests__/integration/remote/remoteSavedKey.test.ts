@@ -41,10 +41,8 @@ const LAN_ENDPOINT = 'http://192.168.1.40:8080/v1';
 
 /** A llama.cpp server on the LAN over plain HTTP that needs no key to list its models. */
 function startOpenLanServer(status = 200): void {
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (new Headers(init?.headers).has('Authorization')) {
-      return new Response('Keys must not be sent over HTTP', { status: 400 });
-    }
+  // An open LAN server ignores any Authorization header; a refusing one answers `status`.
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
     if (status !== 200) return new Response('Authentication required', { status });
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.pathname === '/v1/models') {
@@ -187,8 +185,7 @@ describe('a saved key on a private HTTP server', () => {
     await expect(remoteServerManager.testConnection(saved.id)).resolves.toMatchObject({ success: true });
   });
 
-  it.each([401, 403])('explains the HTTPS rule only after HTTP answers %s', async status => {
-    const { HTTP_API_KEY_ERROR } = require('../../../src/services/remoteTransportPolicy');
+  it.each([401, 403])('reports a rejected key after HTTP answers %s', async status => {
     startOpenLanServer(status);
     const { remoteServerManager } = loadApp();
     const saved = await remoteServerManager.addServer({
@@ -196,7 +193,7 @@ describe('a saved key on a private HTTP server', () => {
       providerType: 'openai-compatible', apiKey: 'sk-lan',
     });
     await expect(remoteServerManager.testConnection(saved.id)).resolves.toMatchObject({
-      success: false, error: HTTP_API_KEY_ERROR,
+      success: false, error: expect.stringMatching(/rejected the API key/),
     });
   });
 

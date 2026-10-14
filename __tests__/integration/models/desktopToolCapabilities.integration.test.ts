@@ -64,3 +64,48 @@ describe('paired Desktop model capabilities across the gateway HTTP boundary', (
     picker.unmount();
   });
 });
+
+describe('paired Desktop computer-use specialists', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('are never offered as chat models, even when /v1/models lists them as chat or vision', async () => {
+    installNativeBoundary();
+    global.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith('/v1/models/catalog')
+        ? {
+            models: [
+              { id: 'qwen3-8b', name: 'Qwen 3 8B', kind: 'text', files: [] },
+              { id: 'cu-decision', name: 'Decision head', kind: 'computer_use', files: [] },
+              { id: 'cu-grounder', name: 'Grounding specialist', kind: 'computer_use', files: [] },
+            ],
+            kinds: ['text', 'computer_use'],
+          }
+        : url.endsWith('/v1/models/installed')
+          ? { installed: ['qwen3-8b', 'cu-decision', 'cu-grounder'] }
+          : url.endsWith('/v1/models/active')
+            ? { text: 'qwen3-8b' }
+            : url.endsWith('/v1/models')
+              ? {
+                  data: [
+                    { id: 'qwen3-8b', kind: 'chat' },
+                    // Desktop's gateway lists installed specialists for its own computer-use flow.
+                    { id: 'cu-decision', kind: 'chat', architecture: { output_modalities: ['decisions'] } },
+                    { id: 'cu-grounder', kind: 'vision', capabilities: ['vision'] },
+                  ],
+                }
+              : null;
+      if (body === null) throw new Error(`Unexpected Desktop request: ${url}`);
+      return { ok: true, json: async () => body } as Response;
+    }) as typeof fetch;
+
+    const state = await readOffGridDesktopModelState(desktop);
+
+    expect(state?.textModels.map(model => model.id)).toEqual(['qwen3-8b']);
+    expect(state?.catalog.text?.map(option => option.id)).toEqual(['qwen3-8b']);
+  });
+});

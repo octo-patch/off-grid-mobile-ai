@@ -69,7 +69,7 @@ describe('remoteMediaRuntime', () => {
     );
   });
 
-  it('keeps private-LAN HTTP unauthenticated and rejects redirects', async () => {
+  it('sends the saved key to a private-LAN HTTP gateway and rejects redirects', async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     global.fetch = jest.fn(async (url, init) => {
       calls.push([url, init]);
@@ -86,7 +86,10 @@ describe('remoteMediaRuntime', () => {
     expect(calls[0]?.[1]?.headers).toMatchObject({
       'Content-Type': 'application/json',
     });
-    expect(calls[0]?.[1]?.headers).not.toHaveProperty('Authorization');
+    expect(calls[0]?.[1]?.headers).toHaveProperty(
+      'Authorization',
+      'Bearer device-secret',
+    );
     expect(calls[0]?.[1]?.redirect).toBe('error');
     expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({
       model: 'flux-schnell',
