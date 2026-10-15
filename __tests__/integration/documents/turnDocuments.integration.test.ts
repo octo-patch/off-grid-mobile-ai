@@ -56,8 +56,7 @@ const ATLAS = [
   ...Array.from(
     { length: 14 },
     (_, i) =>
-      `Chapter ${i + 1} describes farming terraces, river ferries and the winter market of region ${i + 1}. ` +
-      'Orchards of plum and pear line the valley roads, and the harvest festival lasts nine days. '.repeat(5),
+      `Chapter ${i + 1} describes farming terraces, river ferries and the winter market of region ${i + 1}. ${'Orchards of plum and pear line the valley roads, and the harvest festival lasts nine days. '.repeat(5)}`,
   ),
 ].join('\n\n');
 
