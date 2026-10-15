@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
 } from 'react-native';
+import type { DocumentPage } from '@offgrid/rag/documents';
 import { LoadingDots } from '../components/LoadingDots';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -14,7 +15,7 @@ import RNFS from 'react-native-fs';
 import { useTheme, useThemedStyles } from '../theme';
 import type { ThemeColors, ThemeShadows } from '../theme';
 import { TYPOGRAPHY, SPACING } from '../constants';
-import { documentService } from '../services';
+import { documentStore } from '../services/documents/store';
 import { RootStackParamList } from '../navigation/types';
 import logger from '../utils/logger';
 
@@ -37,6 +38,24 @@ const decodeFilePath = (path: string): string => {
     return path;
   }
 };
+
+/** How long the screen waits for a document that is still being read before showing what is ready. */
+const READ_WAIT_MS = 10_000;
+const READ_POLL_MS = 500;
+
+/** A document's stored pages, waiting briefly while it is still being read. Null when it could not be read. */
+async function waitForPages(documentId: string): Promise<DocumentPage[] | null> {
+  const deadline = Date.now() + READ_WAIT_MS;
+  for (;;) {
+    const stored = await documentStore.getDocument(documentId);
+    if (stored?.state === 'failed') return null;
+    const settled = stored && stored.state !== 'reading';
+    if (settled || Date.now() >= deadline) {
+      return (await documentStore.readPages(documentId)).filter((p) => p.text.trim());
+    }
+    await new Promise((resolve) => setTimeout(resolve, READ_POLL_MS));
+  }
+}
 
 const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
   container: {
@@ -70,10 +89,6 @@ const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
     color: colors.textMuted,
     marginTop: 2,
   },
-  content: {
-    flex: 1,
-    padding: SPACING.lg,
-  },
   contentText: {
     ...TYPOGRAPHY.body,
     color: colors.text,
@@ -93,6 +108,20 @@ const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
     textAlign: 'center' as const,
     marginTop: SPACING.md,
   },
+  pageLabel: {
+    ...TYPOGRAPHY.labelSmall,
+    color: colors.textMuted,
+    marginBottom: SPACING.xs,
+  },
+  page: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  pageCited: {
+    backgroundColor: colors.surface,
+  },
   emptyText: {
     ...TYPOGRAPHY.body,
     color: colors.textMuted,
@@ -103,11 +132,13 @@ const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
 export const DocumentPreviewScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
-  const { filePath, fileName, fileSize } = route.params;
+  const { filePath, fileName, fileSize, documentId, page } = route.params;
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
 
-  const [content, setContent] = useState<string | null>(null);
+  const [pages, setPages] = useState<DocumentPage[] | null>(null);
+  const pageListRef = useRef<FlatList<DocumentPage>>(null);
+  const jumpedToPage = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,6 +146,19 @@ export const DocumentPreviewScreen: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
+
+      const showPages = async (id: string): Promise<void> => {
+        const stored = await waitForPages(id);
+        if (!stored) setError('Could not read this document.');
+        else if (stored.length) setPages(stored);
+        else setError('This document is still being read. Try again in a moment.');
+      };
+
+      if (documentId) {
+        // A document the index knows: its pages are stored (or being read) by the document engine.
+        await showPages(documentId);
+        return;
+      }
 
       logger.log('[DocumentPreview] ===== Loading document =====');
       logger.log('[DocumentPreview] Original filePath param:', filePath);
@@ -165,16 +209,16 @@ export const DocumentPreviewScreen: React.FC = () => {
       }
 
       logger.log('[DocumentPreview] Found file at:', foundPath);
-      const attachment = await documentService.processDocumentFromPath(foundPath, fileName);
-      logger.log('[DocumentPreview] Attachment result:', attachment ? 'success' : 'null');
-
-      if (attachment?.textContent) {
-        logger.log('[DocumentPreview] Text content length:', attachment.textContent.length);
-        setContent(attachment.textContent);
-      } else {
-        logger.log('[DocumentPreview] No text content in attachment');
-        setError('Could not extract text from this document');
-      }
+      // A file the index has not seen: read it with the document engine, like any attached document.
+      const id = await RNFS.hash(foundPath, 'sha256');
+      const { startDocumentIngest } = await import('../services/documents');
+      startDocumentIngest({
+        id,
+        name: fileName,
+        kind: fileName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'text',
+        path: foundPath,
+      });
+      await showPages(id);
     } catch (err: any) {
       logger.error('[DocumentPreview] ===== Error loading document =====');
       logger.error('[DocumentPreview] Error message:', err?.message);
@@ -183,7 +227,7 @@ export const DocumentPreviewScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [filePath, fileName]);
+  }, [filePath, fileName, documentId]);
 
   useEffect(() => {
     loadContent();
@@ -220,10 +264,30 @@ export const DocumentPreviewScreen: React.FC = () => {
           <Icon name="alert-circle" size={40} color={colors.error} />
           <Text style={styles.errorText}>{error}</Text>
         </View>
-      ) : content ? (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator>
-          <Text style={styles.contentText}>{content}</Text>
-        </ScrollView>
+      ) : pages ? (
+        <FlatList
+          ref={pageListRef}
+          data={pages}
+          keyExtractor={(item) => String(item.page)}
+          initialNumToRender={4}
+          windowSize={5}
+          onLayout={() => {
+            if (jumpedToPage.current) return;
+            jumpedToPage.current = true;
+            const index = page ? pages.findIndex((p) => p.page >= page) : -1;
+            if (index > 0) pageListRef.current?.scrollToIndex({ index, animated: false });
+          }}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            pageListRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false });
+            setTimeout(() => pageListRef.current?.scrollToIndex({ index, animated: false }), 100);
+          }}
+          renderItem={({ item }) => (
+            <View style={[styles.page, item.page === page && styles.pageCited]}>
+              <Text style={styles.pageLabel}>{item.label ?? `Page ${item.page}`}</Text>
+              <Text style={styles.contentText} selectable>{item.text}</Text>
+            </View>
+          )}
+        />
       ) : (
         <View style={styles.centered}>
           <Icon name="file-text" size={40} color={colors.textMuted} />

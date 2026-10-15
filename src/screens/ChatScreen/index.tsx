@@ -25,6 +25,7 @@ import { createStyles } from './styles';
 import { useChatScreen } from './useChatScreen';
 import { MessageRenderer } from './MessageRenderer';
 import { NoModelScreen, ChatHeader } from './ChatScreenComponents';
+import { openDocumentPage, useChatDocumentsSheet } from '../../components/ChatDocumentsSheet';
 import { ChatModalSection } from './ChatModalSection';
 import { ChatMessageArea } from './ChatMessageArea';
 import {
@@ -66,6 +67,7 @@ export const ChatScreen: React.FC = () => {
     'text',
   );
   const [whisperOpen, setWhisperOpen] = useState(false);
+  const documents = useChatDocumentsSheet(chat.activeConversation, rootNavigation);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const returnToModelsRef = useRef(false);
   const reopenModelsAfterChildClose = () => {
@@ -257,6 +259,7 @@ export const ChatScreen: React.FC = () => {
       onTranscribeAgain={chat.handleTranscribeAgain}
       onGenerateImage={chat.handleGenerateImageFromMessage}
       onImagePress={chat.handleImagePress}
+      onCitationPress={source => openDocumentPage(rootNavigation, source)}
     />
   );
 
@@ -283,7 +286,10 @@ export const ChatScreen: React.FC = () => {
           setShowSettingsPanel={chat.setShowSettingsPanel}
           setShowProjectSelector={chat.setShowProjectSelector}
           isRemote={chat.activeModelInfo?.isRemote}
+          documentCount={documents.count}
+          onOpenDocuments={documents.open}
         />
+        {documents.sheet}
         <ModelsManagerSheet
           visible={modelsManagerOpen}
           onClose={() => setModelsManagerOpen(false)}

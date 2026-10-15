@@ -193,6 +193,17 @@ export interface ModelRecommendation {
 }
 
 // Media attachment types
+/** One passage an answer may cite as `[S#]`: which document and page. */
+export interface DocumentCitation {
+  /** "S3" */
+  id: string;
+  documentId: string;
+  name: string;
+  page: number;
+  label?: string;
+  snippet: string;
+}
+
 export interface MediaAttachment {
   id: string;
   type: 'image' | 'document' | 'audio';
@@ -202,6 +213,10 @@ export interface MediaAttachment {
   height?: number;
   fileName?: string;
   textContent?: string; // documents: extracted text
+  /** documents: SHA-256 of the file, its identity in the chat's document index */
+  documentId?: string;
+  /** documents: pages (or text parts) the index read */
+  pageCount?: number;
   fileSize?: number; // documents: file size in bytes
   audioFormat?: 'wav' | 'mp3'; // audio attachments: format for model input
   audioDurationSeconds?: number; // audio attachments: recorded duration in seconds
@@ -290,6 +305,8 @@ export interface Message {
   /** Indicates this is a system info message (model loaded/unloaded, etc.) */
   isSystemInfo?: boolean;
   attachments?: MediaAttachment[];
+  /** ASSISTANT messages: the document passages this answer could cite, in [S#] order. */
+  documentSources?: DocumentCitation[];
   /** Generation duration in milliseconds */
   generationTimeMs?: number;
   /** Metadata about how the message was generated */

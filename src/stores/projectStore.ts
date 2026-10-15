@@ -3,7 +3,7 @@ import { APP_CONFIG } from '../constants';
 import { persist } from 'zustand/middleware';
 import { Project } from '../types';
 import { generateId } from '../utils/generateId';
-import { ragService } from '../services/rag';
+import { knowledgeBase } from '../services/rag';
 import { useChatStore } from './chatStore';
 import logger from '../utils/logger';
 import { createHydrationGatedStorage } from '../utils/hydrationGatedStorage';
@@ -142,7 +142,7 @@ export const useProjectStore = create<ProjectState>()(
         if (!projectExists) return { ok: true };
 
         try {
-          await ragService.deleteProjectDocuments(id);
+          await knowledgeBase.deleteProjectDocuments(id);
         } catch (error) {
           logger.error(
             `Failed to delete RAG documents for project ${id}`,

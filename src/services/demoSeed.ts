@@ -2,7 +2,7 @@ import RNFS from 'react-native-fs';
 import { useAppStore } from '../stores/appStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useChatStore, waitForChatPersistence } from '../stores/chatStore';
-import { ragService } from './rag';
+import { knowledgeBase } from './rag';
 import { demoRolloutPdfBase64 } from './demoSeedPdf';
 import type { MediaAttachment, Message } from '../types';
 
@@ -253,9 +253,9 @@ export async function seedDemoData(deps: {
   ];
   for (const note of notes) {
     try {
-      const existing = await ragService.getDocumentsByProject(project.id);
+      const existing = await knowledgeBase.getDocumentsByProject(project.id);
       if (existing.some(item => item.name === `${note.title}.txt`)) continue;
-      await ragService.indexPastedText({ projectId: project.id, ...note });
+      await knowledgeBase.addPastedText({ projectId: project.id, ...note });
       documents++;
     } catch (error) {
       warnings.push(
@@ -268,13 +268,13 @@ export async function seedDemoData(deps: {
   const fileName = 'Acme_rollout_v3.pdf';
   const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
   try {
-    const existing = await ragService.getDocumentsByProject(project.id);
+    const existing = await knowledgeBase.getDocumentsByProject(project.id);
     if (!existing.some(item => item.name === fileName)) {
       if (!(await RNFS.exists(filePath))) {
         await RNFS.writeFile(filePath, demoRolloutPdfBase64, 'base64');
       }
       const stat = await RNFS.stat(filePath);
-      await ragService.indexDocument({
+      await knowledgeBase.addFile({
         projectId: project.id,
         filePath,
         fileName,

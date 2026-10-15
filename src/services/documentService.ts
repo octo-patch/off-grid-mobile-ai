@@ -1,6 +1,7 @@
 /**
- * DocumentService - Handles reading and parsing document files
- * Supports: text files, code files, CSV, JSON, PDF, and other text-based formats
+ * DocumentService - keeps a copy of a picked document (text, code, CSV, JSON, PDF) and hands it to
+ * the document engine (services/documents), which reads and indexes it. Chat attachments and project
+ * knowledge-base files both come in through attachDocument.
  */
 
 import { Platform } from 'react-native';
@@ -8,8 +9,6 @@ import RNFS from 'react-native-fs';
 import { statFile } from '../utils/fileStat';
 import { MediaAttachment } from '../types';
 import { pdfExtractor } from './pdfExtractor';
-import { useAppStore } from '../stores/appStore';
-import { APP_CONFIG } from '../constants';
 import { generateId } from '../utils/generateId';
 
 // File extensions we can read as text
@@ -49,8 +48,8 @@ const TEXT_EXTENSIONS = [
 // PDF extension handled separately via native module
 const PDF_EXTENSION = '.pdf';
 
-// Max file size we'll read (5MB)
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+/** Documents are read page by page natively and indexed, so they can be large. */
+const MAX_ATTACH_SIZE = 1024 * 1024 * 1024;
 
 // Persistent directory for attached documents
 const ATTACHMENTS_DIR = `${RNFS.DocumentDirectoryPath}/attachments`;
@@ -159,37 +158,6 @@ class DocumentService {
     }
   }
 
-  private async readContent(
-    resolvedPath: string,
-    isPdf: boolean,
-    maxChars: number,
-  ): Promise<string> {
-    console.log(
-      `[DocumentService] readContent called - path: ${resolvedPath}, isPdf: ${isPdf}, maxChars: ${maxChars}`,
-    );
-    try {
-      const raw = isPdf
-        ? await pdfExtractor.extractText(resolvedPath, maxChars)
-        : await RNFS.readFile(resolvedPath, 'utf8');
-      console.log(
-        `[DocumentService] Successfully read ${raw.length} characters`,
-      );
-      if (raw.length > maxChars) {
-        return `${raw.substring(
-          0,
-          maxChars,
-        )}\n\n... [Content truncated due to length]`;
-      }
-      return raw;
-    } catch (error: any) {
-      console.error(
-        `[DocumentService] Error reading content:`,
-        error?.message || error,
-      );
-      throw error;
-    }
-  }
-
   private async savePersistentCopy(
     resolvedPath: string,
     originalPath: string,
@@ -212,158 +180,26 @@ class DocumentService {
   }
 
   /**
-   * Process a document from a file path
+   * Keep a document (for a chat or a knowledge base). The file is kept and indexed in the background by the document index
+   * (services/documents), which reads every page natively; nothing is cut and the full text never
+   * sits in JS memory. Returns as soon as the copy is kept, so sending is never blocked.
    */
-  async processDocumentFromPath(
-    filePath: string,
-    fileName?: string,
-    maxCharsOverride?: number,
-  ): Promise<MediaAttachment | null> {
-    try {
-      console.log(
-        `[DocumentService] Processing document - filePath: ${filePath}, fileName: ${fileName}`,
-      );
-      const name = fileName || filePath.split('/').pop() || 'document';
-      const extension = `.${name.split('.').pop()?.toLowerCase()}`;
-      const isPdf = extension === PDF_EXTENSION;
-      console.log(
-        `[DocumentService] Detected extension: ${extension}, isPdf: ${isPdf}`,
-      );
-      this.validateFileType(extension, isPdf);
-
-      const resolvedPath = await this.resolveContentUri(filePath, name);
-      console.log(`[DocumentService] Resolved path: ${resolvedPath}`);
-
-      // Verify the file exists and is accessible
-      let fileExists = false;
-      try {
-        fileExists = await RNFS.exists(resolvedPath);
-        console.log(`[DocumentService] File exists check: ${fileExists}`);
-      } catch (existsError) {
-        // RNFS.exists can fail on security-scoped URLs
-        console.error(`[DocumentService] exists() threw error:`, existsError);
-        throw new Error(
-          'Could not access file. Please try selecting the file again.',
-        );
-      }
-
-      if (!fileExists) {
-        throw new Error(`File not found: ${name}`);
-      }
-
-      const facts = await statFile(resolvedPath);
-      if (!facts) {
-        throw new Error(
-          'Could not determine file size. Please try selecting the file again.',
-        );
-      }
-      const fileSize = facts.size;
-      console.log(`[DocumentService] File size: ${fileSize} bytes`);
-      if (fileSize > MAX_FILE_SIZE) {
-        throw new Error(
-          `File is too large. Maximum size is ${
-            MAX_FILE_SIZE / (1024 * 1024)
-          }MB`,
-        );
-      }
-
-      const maxChars =
-        maxCharsOverride ??
-        Math.floor(
-          (useAppStore.getState().settings.contextLength ||
-            APP_CONFIG.maxContextLength) *
-            4 *
-            0.5,
-        );
-      const textContent = await this.readContent(resolvedPath, isPdf, maxChars);
-      const { id, uri } = await this.savePersistentCopy(
-        resolvedPath,
-        filePath,
-        name,
-      );
-
-      return {
-        id,
-        type: 'document',
-        uri,
-        fileName: name,
-        textContent,
-        fileSize,
-      };
-    } catch (error: any) {
-      throw error;
+  async attachDocument(filePath: string, fileName?: string): Promise<MediaAttachment> {
+    const name = fileName || filePath.split('/').pop() || 'document';
+    const extension = `.${name.split('.').pop()?.toLowerCase()}`;
+    const isPdf = extension === PDF_EXTENSION;
+    this.validateFileType(extension, isPdf);
+    const resolvedPath = await this.resolveContentUri(filePath, name);
+    const facts = await statFile(resolvedPath);
+    if (!facts) throw new Error('Could not read this file. Please try selecting it again.');
+    if (facts.size > MAX_ATTACH_SIZE) {
+      throw new Error(`File is too large. Maximum size is ${MAX_ATTACH_SIZE / (1024 * 1024 * 1024)} GB`);
     }
-  }
-
-  /**
-   * Create a document attachment from pasted text.
-   * Saves to a persistent file so it can be opened later from chat.
-   */
-  async createFromText(
-    text: string,
-    fileName: string = 'pasted-text.txt',
-  ): Promise<MediaAttachment> {
-    const contextLength =
-      useAppStore.getState().settings.contextLength ||
-      APP_CONFIG.maxContextLength;
-    const maxChars = Math.floor(contextLength * 4 * 0.5);
-    let textContent = text;
-    if (textContent.length > maxChars) {
-      textContent = `${textContent.substring(
-        0,
-        maxChars,
-      )}\n\n... [Content truncated due to length]`;
-    }
-
-    const id = generateId();
-
-    // Write to persistent file so it can be opened from chat
-    let uri = '';
-    try {
-      await this.ensureAttachmentsDir();
-      const persistentPath = `${ATTACHMENTS_DIR}/${id}_${fileName}`;
-      await RNFS.writeFile(persistentPath, text, 'utf8');
-      uri = persistentPath;
-    } catch {
-      // Failed to write — uri stays empty, tap will be a no-op
-    }
-
-    return {
-      id,
-      type: 'document',
-      uri,
-      fileName,
-      textContent,
-      fileSize: text.length,
-    };
-  }
-
-  /**
-   * Format document content for including in LLM context
-   */
-  formatForContext(attachment: MediaAttachment): string {
-    if (attachment.type !== 'document' || !attachment.textContent) {
-      return '';
-    }
-
-    const fileName = attachment.fileName || 'document';
-    return `\n\n---\n📄 **Attached Document: ${fileName}**\n\`\`\`\n${attachment.textContent}\n\`\`\`\n---\n`;
-  }
-
-  /**
-   * Get a short preview of document content
-   */
-  getPreview(attachment: MediaAttachment, maxLength: number = 100): string {
-    if (attachment.type !== 'document' || !attachment.textContent) {
-      return attachment.fileName || 'Document';
-    }
-
-    const preview = attachment.textContent
-      .substring(0, maxLength)
-      .replaceAll('\n', ' ');
-    return preview.length < attachment.textContent.length
-      ? `${preview}...`
-      : preview;
+    const { id, uri } = await this.savePersistentCopy(resolvedPath, filePath, name);
+    const documentId = await RNFS.hash(uri.replace(/^file:\/\//, ''), 'sha256');
+    const { startDocumentIngest } = await import('./documents');
+    startDocumentIngest({ id: documentId, name, kind: isPdf ? 'pdf' : 'text', path: uri });
+    return { id, type: 'document', uri, fileName: name, fileSize: facts.size, documentId };
   }
 
   /**

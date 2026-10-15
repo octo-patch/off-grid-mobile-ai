@@ -60,6 +60,8 @@ const config = {
       // resolving the external package directory can fail in an already-running dev server
       // after the file dependency is added, even though Node can resolve the package.
       '@offgrid/rag': path.resolve(ragPackagePath, 'dist/index.js'),
+      // Documents attached to chat (ingest, retrieval, prompt shape); its splitter is bundled in.
+      '@offgrid/rag/documents': path.resolve(ragPackagePath, 'dist/documents/index.js'),
       '@offgrid/models': path.resolve(modelsPackagePath, 'dist/index.js'),
       '@offgrid/speech': path.resolve(speechPackagePath, 'dist/index.cjs'),
       '@offgrid/ui': path.resolve(uiPackagePath, 'dist/index.js'),

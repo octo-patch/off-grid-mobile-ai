@@ -79,9 +79,11 @@ interface MarkdownTextProps {
   children: string;
   dimmed?: boolean;
   compact?: boolean;
+  /** Handles app links (e.g. document citations) before the external-URL fallback. */
+  onAppLink?: (url: string) => boolean;
 }
 
-export function MarkdownText({ children, dimmed, compact }: MarkdownTextProps) {
+export function MarkdownText({ children, dimmed, compact, onAppLink }: MarkdownTextProps) {
   const { colors } = useTheme();
   const markdownStyles = useMemo(
     () => createMarkdownStyles(colors, dimmed, compact),
@@ -89,10 +91,11 @@ export function MarkdownText({ children, dimmed, compact }: MarkdownTextProps) {
   );
 
   const handleLinkPress = useCallback((url: string) => {
+    if (onAppLink?.(url)) return false;
     const safeUrl = safeChatExternalUrl(url);
     if (safeUrl) void Linking.openURL(safeUrl);
     return false;
-  }, []);
+  }, [onAppLink]);
 
   const processed = useMemo(() => preprocessMarkdown(children), [children]);
   const rules = useMemo(

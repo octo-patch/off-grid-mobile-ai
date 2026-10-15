@@ -9,6 +9,7 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
+import { parseSearchBlock } from '@offgrid/rag/documents';
 import { useTheme } from '../../../theme';
 import { useAccordionExpanded, useAccordionStore } from '../../../stores';
 import { SLOTS, useSlot } from '../../../bootstrap/slotRegistry';
@@ -48,6 +49,12 @@ function getToolLabel(toolName?: string, content?: string): string {
         : null;
       if (queryMatch) return `Searched: "${queryMatch[1]}" (no results)`;
       return 'Web search result';
+    }
+    case 'search_knowledge_base': {
+      const passages = content ? parseSearchBlock(content) : [];
+      if (!passages.length) return 'Searched documents (no passages)';
+      const documents = new Set(passages.map(passage => passage.document)).size;
+      return `Found ${passages.length} passage${passages.length === 1 ? '' : 's'} in ${documents} document${documents === 1 ? '' : 's'}`;
     }
     case 'calculator':
       return content || 'Calculated';

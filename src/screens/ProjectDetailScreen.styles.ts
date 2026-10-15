@@ -238,16 +238,11 @@ export const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
     flex: 1,
     marginRight: SPACING.sm,
   },
-  kbDocName: {
-    ...TYPOGRAPHY.body,
-    color: colors.text,
-  },
-  kbDocSize: {
-    ...TYPOGRAPHY.labelSmall,
-    color: colors.textMuted,
-  },
   kbDocDelete: {
     padding: SPACING.sm,
     marginLeft: SPACING.sm,
+  },
+  kbTransferIcon: {
+    marginRight: SPACING.sm,
   },
 });

@@ -16,7 +16,7 @@ import {
   useProExpiryRedirect,
 } from './src/navigation/useProExpiryRedirect';
 import { useTheme } from './src/theme';
-import { hardwareService, modelManager, authService, ragService, remoteServerManager } from './src/services';
+import { hardwareService, modelManager, authService, knowledgeBase, remoteServerManager } from './src/services';
 import logger from './src/utils/logger';
 import { useAppStore, useAuthStore, useRemoteServerStore, useWhisperStore } from './src/stores';
 import { useDebugLogsStore } from './src/stores/debugLogsStore';
@@ -342,7 +342,7 @@ function App() {
       }
 
       // Initialize RAG database tables
-      ragService.ensureReady().catch((err) => logger.error('Failed to initialize RAG service on startup', err));
+      knowledgeBase.ensureReady().catch((err) => logger.error('Failed to open the knowledge base on startup', err));
 
       try {
         // Register the private Pro entitlement provider before the first status

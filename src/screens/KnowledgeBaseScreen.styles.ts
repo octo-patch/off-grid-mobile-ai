@@ -30,21 +30,6 @@ export const createStyles = (colors: ThemeColors, _shadows: ThemeShadows) => ({
   addButton: {
     padding: SPACING.sm,
   },
-  indexingBanner: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
-    gap: SPACING.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  indexingText: {
-    ...TYPOGRAPHY.bodySmall,
-    color: colors.textSecondary,
-    flex: 1,
-  },
   errorCard: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
@@ -125,17 +110,11 @@ export const createStyles = (colors: ThemeColors, _shadows: ThemeShadows) => ({
     flex: 1,
     marginRight: SPACING.sm,
   },
-  docName: {
-    ...TYPOGRAPHY.body,
-    color: colors.text,
-  },
-  docSize: {
-    ...TYPOGRAPHY.labelSmall,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
   docDelete: {
     padding: SPACING.sm,
     marginLeft: SPACING.sm,
+  },
+  transferIcon: {
+    marginRight: SPACING.sm,
   },
 });

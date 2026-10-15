@@ -128,7 +128,9 @@
   "engines": {
     "node": ">=20"
   },
-  "op-sqlite": {},
+  "op-sqlite": {
+    "fts5": true
+  },
   "overrides": {
     "react": "19.2.0",
     "linkify-it": "^5.0.2",

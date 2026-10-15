@@ -4,7 +4,7 @@ import { ChatMessage } from '../../components';
 import { ThinkingIndicator } from '../../components/ThinkingIndicator';
 import { SPACING } from '../../constants';
 import { parseModelOutput, prepareMessageForSpeech } from '../../utils/messageContent';
-import { Message } from '../../types';
+import { DocumentCitation, Message } from '../../types';
 import { useChatStore, useUiModeStore } from '../../stores';
 import { getSlot, SLOTS } from '../../bootstrap/slotRegistry';
 import { ChatMessageItem } from './useChatScreen';
@@ -27,6 +27,7 @@ type MessageRendererProps = {
   ) => Promise<void>;
   onGenerateImage: (prompt: string) => void;
   onImagePress: (uri: string) => void;
+  onCitationPress?: (source: DocumentCitation) => void;
 };
 
 const MessageRendererInner: React.FC<MessageRendererProps> = props => {
@@ -45,6 +46,7 @@ const MessageRendererInner: React.FC<MessageRendererProps> = props => {
     onTranscribeAgain,
     onGenerateImage,
     onImagePress,
+    onCitationPress,
   } = props;
 
   const interfaceMode = useUiModeStore(s => s.interfaceMode);
@@ -117,6 +119,7 @@ const MessageRendererInner: React.FC<MessageRendererProps> = props => {
       onTranscribeAgain={onTranscribeAgain}
       onGenerateImage={onGenerateImage}
       onImagePress={onImagePress}
+      onCitationPress={onCitationPress}
       canGenerateImage={imageModelLoaded && !isStreaming && !isGeneratingImage}
       showGenerationDetails={showGenerationDetails}
       animateEntry={animateEntry}
