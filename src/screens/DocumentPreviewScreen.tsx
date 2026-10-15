@@ -43,15 +43,21 @@ const decodeFilePath = (path: string): string => {
 const READ_WAIT_MS = 10_000;
 const READ_POLL_MS = 500;
 
-/** A document's stored pages, waiting briefly while it is still being read. Null when it could not be read. */
-async function waitForPages(documentId: string): Promise<DocumentPage[] | null> {
+/**
+ * A document's stored pages, and whether its reading had finished, waiting briefly while it is still
+ * being read. Null when it could not be read.
+ */
+async function waitForPages(
+  documentId: string,
+): Promise<{ pages: DocumentPage[]; settled: boolean } | null> {
   const deadline = Date.now() + READ_WAIT_MS;
   for (;;) {
     const stored = await documentStore.getDocument(documentId);
     if (stored?.state === 'failed') return null;
     const settled = stored && stored.state !== 'reading';
     if (settled || Date.now() >= deadline) {
-      return (await documentStore.readPages(documentId)).filter((p) => p.text.trim());
+      const pages = (await documentStore.readPages(documentId)).filter((p) => p.text.trim());
+      return { pages, settled: !!settled };
     }
     await new Promise((resolve) => setTimeout(resolve, READ_POLL_MS));
   }
@@ -148,10 +154,11 @@ export const DocumentPreviewScreen: React.FC = () => {
       setError(null);
 
       const showPages = async (id: string): Promise<void> => {
-        const stored = await waitForPages(id);
-        if (!stored) setError('Could not read this document.');
-        else if (stored.length) setPages(stored);
-        else setError('This document is still being read. Try again in a moment.');
+        const read = await waitForPages(id);
+        if (!read) setError('Could not read this document.');
+        else if (read.pages.length) setPages(read.pages);
+        // Read to the end with no text (an empty file, a scanned PDF): nothing to show, not "still reading".
+        else if (!read.settled) setError('This document is still being read. Try again in a moment.');
       };
 
       if (documentId) {
