@@ -1,72 +1,59 @@
 /**
- * T011 (GREEN guard, UI + boundary) — attaching a >5MB document to a project's knowledge base is rejected
- * with "Maximum size is 5MB", and no document is added.
+ * T011 (GREEN guard, UI + boundary) — the knowledge base takes files up to 1 GB (they are read page by
+ * page natively, never whole into memory); a larger file is refused on the screen and nothing is added.
+ * The old 5 MB cap is gone: a 50 MB file is added like any other.
  *
- * Real stack over the device boundary: mount the REAL KnowledgeBaseScreen, tap the REAL "Add Document"
- * button → the real handleAddDocument → real resolvePickedFileUri → real ragService.indexDocument → real
- * documentService.processDocumentFromPath, which stats the file (memfs) and enforces MAX_FILE_SIZE. The ONLY
- * fakes are device leaves: the document picker (@react-native-documents/picker), the filesystem (memfs), and
- * the OS alert (Alert.alert — a native dialog, asserted as the named device-boundary the user sees).
+ * Real stack over the device boundary (harness/knowledgeBaseApp): mount the REAL KnowledgeBaseScreen,
+ * tap the REAL add button → real handleAddDocument → real resolvePickedFileUri → real knowledgeBase.addFile
+ * → real documentService.attachDocument, which asks the filesystem (memfs) for the file's size. The only
+ * fakes are device leaves: the document picker and the filesystem's reported size.
  *
- * The >5MB rejection's user-visible artifact is the on-screen index-error card (the same retriable card the
- * ABORT contract surfaces for any index failure); the KB list staying empty ("No documents yet") corroborates
- * that nothing was added. Falsify: a <5MB file does NOT surface the 5MB rejection message.
+ * The refusal's user-visible artifact is the on-screen index-error card; the list staying empty
+ * ("No documents yet") corroborates that nothing was added.
  */
-import { installNativeBoundary, requireRTL, MB } from '../../harness/nativeBoundary';
+import { openKnowledgeBase } from '../../harness/knowledgeBaseApp';
 
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: () => {}, goBack: () => {}, setOptions: () => {}, addListener: () => () => {} }),
-  useRoute: () => ({ params: { projectId: 'p1' } }),
-  useFocusEffect: () => {}, useIsFocused: () => true,
-}));
+jest.unmock('@react-navigation/native');
 
-async function mountKbWithPickedFile(sizeBytes: number) {
-  const boundary = installNativeBoundary({ fs: true, ram: { platform: 'ios', totalBytes: 8 * 1024 * MB, availBytes: 6 * 1024 * MB } });
-   
-  const React = require('react');
-  const rtl = requireRTL();
-  const picker = require('@react-native-documents/picker');
-  const { useProjectStore } = require('../../../src/stores/projectStore');
-  const { KnowledgeBaseScreen } = require('../../../src/screens/KnowledgeBaseScreen');
-   
+const MB = 1024 * 1024;
 
-  // DEVICE BOUNDARY: the picked file on disk (memfs) at the exact size, and the picker returning it. iOS
-  // 'import' path → resolvePickedFileUri strips file:// and returns the path directly (no keepLocalCopy).
-  const uri = 'file:///docs/report.txt';
-  boundary.fs!.seedFile('/docs/report.txt', sizeBytes);
-  picker.pick.mockResolvedValue([{ uri, name: 'report.txt', size: sizeBytes }]);
+describe('T011 (rendered) — a document over 1 GB is refused by the knowledge base', () => {
+  it('shows "Maximum size is 1 GB" and adds no document', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/archive.txt', 'too big', 1024 * MB + 1);
 
-  // Precondition: the project exists (a KB belongs to a project). This is a precondition, not the tested
-  // doc-attach behavior — the attach is driven by the real gesture below.
-  useProjectStore.setState({ projects: [{ id: 'p1', name: 'Research', description: '', systemPrompt: '', createdAt: 1, updatedAt: 1 }] });
+    await kb.addFiles([{ path: '/docs/Downloads/archive.txt', name: 'archive.txt', size: 1024 * MB + 1 }]);
 
-  const view = rtl.render(React.createElement(KnowledgeBaseScreen, {}));
-  await rtl.waitFor(() => { expect(view.queryByText('No documents yet')).not.toBeNull(); });
-  return { view, rtl };
-}
-
-describe('T011 (rendered) — >5MB document is rejected from the knowledge base', () => {
-  it('shows "Maximum size is 5MB" and adds no document', async () => {
-    const { view, rtl } = await mountKbWithPickedFile(6 * MB); // over the 5MB limit
-
-    // Real gesture: tap "Add Document" → the whole real attach→index pipeline runs over the boundary.
-    rtl.fireEvent.press(view.getByText('Add Document'));
-
-    // The user is told the file is too large — on the on-screen index-error card (the artifact they see).
-    await rtl.waitFor(() => {
-      expect(view.queryByTestId('kb-index-error-card')).not.toBeNull();
-    }, { timeout: 4000 });
-    expect(view.queryByText(/Maximum size is 5MB/)).not.toBeNull();
-    // ...and nothing was added: the KB list still shows the empty state.
-    expect(view.queryByText('No documents yet')).not.toBeNull();
+    // The person is told the file is too large, on the card that names it - and nothing was added.
+    expect(kb.view.getByTestId('kb-index-error-card')).toBeTruthy();
+    expect(kb.view.getByText('Couldn\'t add "archive.txt"')).toBeTruthy();
+    expect(kb.view.getByText(/Maximum size is 1 GB/)).toBeTruthy();
+    expect(kb.view.getByText('No documents yet')).toBeTruthy();
   });
 
-  it('falsify: a <5MB file does NOT surface the 5MB rejection', async () => {
-    const { view, rtl } = await mountKbWithPickedFile(1 * MB); // under the limit
-    rtl.fireEvent.press(view.getByText('Add Document'));
-    // Whatever happens downstream (e.g. no embedding model present), the size guard did NOT fire — the
-    // 5MB rejection message is never shown (the guard is size-specific).
-    await rtl.waitFor(() => { expect(view.queryByTestId('kb-index-error-card')).not.toBeNull(); }).catch(() => {});
-    expect(view.queryByText(/Maximum size is 5MB/)).toBeNull();
+  it('adds a 50 MB file (ten times the old limit) with no error', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/manual.txt', 'Torque the bolts to 40 Nm.', 50 * MB);
+
+    await kb.addFiles([{ path: '/docs/Downloads/manual.txt', name: 'manual.txt', size: 50 * MB }]);
+
+    expect(kb.view.queryByTestId('kb-index-error-card')).toBeNull();
+    const status = await kb.statusOf('/docs/Downloads/manual.txt');
+    await kb.rtl.waitFor(() => expect(status.props.children).toMatch(/^50\.0 MB · 1 page$/));
+  });
+
+  it('a refused file can be retried from the card once the person picks a smaller one', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/archive.txt', 'too big', 1024 * MB + 1);
+    kb.engine.seedText('/docs/Downloads/summary.txt', 'The archive in short.');
+    await kb.addFiles([{ path: '/docs/Downloads/archive.txt', name: 'archive.txt' }]);
+    expect(kb.view.getByTestId('kb-index-error-card')).toBeTruthy();
+
+    const picker = require('@react-native-documents/picker');
+    picker.pick.mockResolvedValue([{ uri: 'file:///docs/Downloads/summary.txt', name: 'summary.txt', size: 21 }]);
+    kb.rtl.fireEvent.press(kb.view.getByTestId('kb-index-retry'));
+
+    await kb.rtl.waitFor(() => expect(kb.view.getByText('summary.txt')).toBeTruthy());
+    expect(kb.view.queryByTestId('kb-index-error-card')).toBeNull();
   });
 });

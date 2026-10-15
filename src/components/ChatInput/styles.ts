@@ -49,6 +49,13 @@ export const createStyles = (colors: ThemeColors, shadows: ThemeShadows) => ({
     textAlign: 'center' as const,
     marginTop: 4,
   },
+  documentStatus: {
+    fontSize: 9,
+    fontFamily: FONTS.mono,
+    color: colors.primary,
+    textAlign: 'center' as const,
+    marginTop: 2,
+  },
   removeAttachment: {
     position: 'absolute' as const,
     top: 2,

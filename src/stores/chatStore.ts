@@ -233,6 +233,8 @@ export const useChatStore = create<ChatState>()(
           emitSyncMutation(
             deleteSyncMutation(CORE_SYNC_ENTITIES.conversation, conversationId),
           );
+        // The document services free index entries no remaining chat uses (they read this store).
+        callHook(HOOKS.conversationsDeleted, [conversationId]);
       },
 
       setActiveConversation: conversationId => {
@@ -475,6 +477,7 @@ export const useChatStore = create<ChatState>()(
       clearAllConversations: () => {
         const removed = get().conversations;
         set({ conversations: [], activeConversationId: null });
+        callHook(HOOKS.conversationsDeleted, removed.map(conversation => conversation.id));
         for (const conversation of removed) {
           for (const message of conversation.messages) {
             if (message.uuid)

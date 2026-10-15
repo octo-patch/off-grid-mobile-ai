@@ -183,6 +183,7 @@ interface MessageBubbleProps {
   hideProse?: boolean;
   metaExtra?: React.ReactNode;
   onImagePress?: (uri: string) => void;
+  onCitationPress?: ChatMessageProps['onCitationPress'];
   onToggleThinking: () => void;
   onToggleSupportingContext: () => void;
   onLongPress: () => void;
@@ -206,6 +207,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   hideProse,
   metaExtra,
   onImagePress,
+  onCitationPress,
   onToggleThinking,
   onToggleSupportingContext,
   onLongPress,
@@ -334,6 +336,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             showThinking={showThinking}
             onToggleThinking={onToggleThinking}
             styles={styles}
+            documentSources={message.documentSources}
+            onCitationPress={onCitationPress}
           />
         </View>
       )}
@@ -385,6 +389,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   supportingContext,
   isStreaming: isStreamingProp,
   onImagePress,
+  onCitationPress,
   onCopy,
   onRetry,
   onEdit,
@@ -570,6 +575,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       hideProse={hideProse}
       metaExtra={metaExtra}
       onImagePress={onImagePress}
+      onCitationPress={onCitationPress}
       onToggleThinking={() => setShowThinking(!showThinking)}
       onToggleSupportingContext={() =>
         setShowSupportingContext(!showSupportingContext)

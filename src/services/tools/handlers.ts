@@ -1,7 +1,9 @@
 import { Platform } from 'react-native';
 import DeviceInfo from 'react-native-device-info';
+import { describeTurnStatus } from '@offgrid/rag/documents';
 import { ToolCall, ToolResult } from './types';
-import type { RagSearchResult } from '../rag';
+import { useDocumentTurnStatusStore } from '../documents/progressStore';
+import type * as DocumentChatTurn from '../documents/chatTurn';
 import logger from '../../utils/logger';
 
 function makeResult(call: ToolCall, start: number, opts: { content: string; error?: string }): ToolResult {
@@ -39,7 +41,7 @@ async function dispatchTool(call: ToolCall): Promise<string> {
     case 'search_knowledge_base': {
       const q = requireString(call, 'query');
       if (!q) throw new Error('Missing required parameter: query');
-      return handleSearchKnowledgeBase(q, call.context?.projectId);
+      return handleSearchKnowledgeBase(q, call.context?.conversationId, call.context?.projectId);
     }
     case 'read_url': {
       const url = requireString(call, 'url');
@@ -378,14 +380,26 @@ async function handleReadUrl(rawUrl: string): Promise<string> {
   } finally { clearTimeout(timeout); }
 }
 
-async function handleSearchKnowledgeBase(query: string, projectId?: string): Promise<string> {
-  if (!projectId) return 'No project context. Knowledge base requires an active project.';
-  const { ragService } = require('../rag'); // NOSONAR
-  const result = await ragService.searchProject(projectId, query);
-  if (result.chunks.length === 0) return `No results found for "${query}" in the knowledge base.`;
-  return result.chunks
-    .map((c: RagSearchResult, i: number) => `[${i + 1}] ${c.name} (part ${c.position + 1}):\n${c.content}`)
-    .join('\n\n---\n\n');
+/**
+ * The project's knowledge base and the chat's documents, searched by the shared document engine.
+ * Passages come back as `<source>` blocks numbered after the turn's own [S#], so the answer cites
+ * them like any other passage and the reply links them to their pages.
+ */
+async function handleSearchKnowledgeBase(query: string, conversationId?: string, projectId?: string): Promise<string> {
+  if (!conversationId && !projectId) return 'No chat or project to search. The knowledge base belongs to a project.';
+  // Loaded lazily: the document services read the chat store, which the tool loop is part of.
+  const { searchDocumentsForTool } = require('../documents/chatTurn') as typeof DocumentChatTurn; // NOSONAR
+  const statusKey = conversationId ?? `project:${projectId}`;
+  const status = useDocumentTurnStatusStore.getState();
+  try {
+    return await searchDocumentsForTool(
+      { ...(conversationId ? { conversationId } : {}), ...(projectId ? { projectId } : {}) },
+      query,
+      turnStatus => status.set(statusKey, describeTurnStatus(turnStatus)),
+    );
+  } finally {
+    status.set(statusKey, null);
+  }
 }
 
 function formatBytes(bytes: number): string {

@@ -24,6 +24,7 @@ import Icon from 'react-native-vector-icons/Feather';
 import { useTheme, useThemedStyles } from '../../theme';
 import { MediaAttachment } from '../../types';
 import { documentService } from '../../services/documentService';
+import { useDocumentProgressStore } from '../../services/documents/progressStore';
 import { audioSessionManager } from '../../services/audioSessionManager';
 import { AlertState, showAlert, hideAlert } from '../CustomAlert';
 import { createStyles } from './styles';
@@ -154,11 +155,9 @@ export function useAttachments(setAlertState: (state: AlertState) => void) {
         );
         return;
       }
-      const attachment = await documentService.processDocumentFromPath(
-        file.uri,
-        fileName,
-      );
-      if (attachment) setAttachments(prev => [...prev, attachment]);
+      // Kept and indexed in the background: any size, every page, usable in later turns too.
+      const attachment = await documentService.attachDocument(file.uri, fileName);
+      setAttachments(prev => [...prev, attachment]);
     } catch (pickError: any) {
       if (
         isErrorWithCode(pickError) &&
@@ -231,6 +230,27 @@ interface AttachmentPreviewProps {
   onImagePress?: (uri: string) => void;
 }
 
+const PHASE_LABEL = { reading: 'Reading', ocr: 'Scanning', indexing: 'Indexing' } as const;
+
+/** Background reading progress under a document chip: "Reading 40%", then "1,204 pages". */
+const DocumentStatus: React.FC<{ documentId: string; style: any }> = ({ documentId, style }) => {
+  const progress = useDocumentProgressStore(state => state.byId[documentId]);
+  if (!progress) return null;
+  let label: string;
+  if (progress.phase === 'failed') label = "Couldn't read";
+  else if (progress.phase === 'ready')
+    label = `${progress.pageCount.toLocaleString()} page${progress.pageCount === 1 ? '' : 's'}`;
+  else {
+    const percent = progress.total ? Math.min(99, Math.round((progress.done / progress.total) * 100)) : 0;
+    label = `${PHASE_LABEL[progress.phase]} ${percent}%`;
+  }
+  return (
+    <Text testID={`document-status-${documentId}`} style={style} numberOfLines={1}>
+      {label}
+    </Text>
+  );
+};
+
 export const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
   attachments,
   onRemove,
@@ -282,10 +302,13 @@ export const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
               testID={`document-preview-${attachment.id}`}
               style={styles.documentPreview}
             >
-              <Icon name="file-text" size={24} color={colors.primary} />
-              <Text style={styles.documentName} numberOfLines={2}>
+              <Icon name="file-text" size={attachment.documentId ? 18 : 24} color={colors.primary} />
+              <Text style={styles.documentName} numberOfLines={attachment.documentId ? 1 : 2}>
                 {attachment.fileName || 'Document'}
               </Text>
+              {attachment.documentId && (
+                <DocumentStatus documentId={attachment.documentId} style={styles.documentStatus} />
+              )}
             </View>
           )}
           <TouchableOpacity

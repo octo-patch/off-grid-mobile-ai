@@ -2,8 +2,8 @@
  * RAG Embedding Contract Tests
  *
  * Documents and verifies the expected interface between our embedding service
- * and the llama.rn native module's embedding API. Also documents the vector
- * storage format and search contract.
+ * and the llama.rn native module's embedding API, and the vector storage format
+ * the document index keeps (services/documents/store.ts).
  *
  * These tests use mocks — they verify interface compatibility and expected
  * data shapes, not actual native functionality.
@@ -117,48 +117,6 @@ describe('RAG Embedding Contract', () => {
   });
 
   // ============================================================================
-  // Search Result Contract
-  // ============================================================================
-  describe('search result format', () => {
-    it('RagSearchResult uses score instead of rank', () => {
-      const result = {
-        doc_id: 1,
-        name: 'document.pdf',
-        content: 'chunk text',
-        position: 0,
-        score: 0.85,
-      };
-
-      expect(result).toHaveProperty('score');
-      expect(result.score).toBeGreaterThanOrEqual(-1);
-      expect(result.score).toBeLessThanOrEqual(1);
-    });
-
-    it('cosine similarity score range is [-1, 1]', () => {
-      // Identical vectors → 1.0
-      // Orthogonal vectors → 0.0
-      // Opposite vectors → -1.0
-      const scores = [1, 0.85, 0.5, 0, -0.3, -1];
-      scores.forEach(score => {
-        expect(score).toBeGreaterThanOrEqual(-1);
-        expect(score).toBeLessThanOrEqual(1);
-      });
-    });
-
-    it('search results are sorted by descending score', () => {
-      const results = [
-        { score: 0.95 },
-        { score: 0.8 },
-        { score: 0.65 },
-      ];
-
-      for (let i = 1; i < results.length; i++) {
-        expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
-      }
-    });
-  });
-
-  // ============================================================================
   // Model Asset Contract
   // ============================================================================
   describe('embedding model asset', () => {
@@ -181,29 +139,6 @@ describe('RAG Embedding Contract', () => {
       const destPath = '/mock/documents/all-MiniLM-L6-v2-Q8_0.gguf';
 
       expect(destPath).toContain('all-MiniLM-L6-v2-Q8_0.gguf');
-    });
-  });
-
-  // ============================================================================
-  // IndexProgress Contract
-  // ============================================================================
-  describe('IndexProgress stages', () => {
-    it('includes embedding stage in the pipeline', () => {
-      const stages = ['extracting', 'chunking', 'indexing', 'embedding', 'done'];
-
-      expect(stages).toContain('embedding');
-      expect(stages.indexOf('embedding')).toBe(3);
-      expect(stages.indexOf('done')).toBe(4);
-    });
-
-    it('embedding stage comes after indexing and before done', () => {
-      const stages = ['extracting', 'chunking', 'indexing', 'embedding', 'done'];
-      const embIdx = stages.indexOf('embedding');
-      const idxIdx = stages.indexOf('indexing');
-      const doneIdx = stages.indexOf('done');
-
-      expect(embIdx).toBeGreaterThan(idxIdx);
-      expect(embIdx).toBeLessThan(doneIdx);
     });
   });
 });

@@ -12,7 +12,7 @@
 
 const mockDeleteProjectDocuments = jest.fn<Promise<void>, [string]>(() => Promise.resolve());
 jest.mock('../../../src/services/rag', () => ({
-  ragService: { deleteProjectDocuments: (id: string) => mockDeleteProjectDocuments(id) },
+  knowledgeBase: { deleteProjectDocuments: (id: string) => mockDeleteProjectDocuments(id) },
 }));
 
 import { useProjectStore } from '../../../src/stores/projectStore';
@@ -481,7 +481,7 @@ describe('projectStore', () => {
   // RAG cleanup on delete
   // ============================================================================
   describe('RAG cleanup on deleteProject', () => {
-    it('calls ragService.deleteProjectDocuments when deleting a project', async () => {
+    it('calls knowledgeBase.deleteProjectDocuments when deleting a project', async () => {
       const { deleteProject } = useProjectStore.getState();
       await deleteProject('default-assistant');
       expect(mockDeleteProjectDocuments).toHaveBeenCalledWith(

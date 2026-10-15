@@ -8,6 +8,7 @@ import ai.offgridmobile.SafePromise
 import io.legere.pdfiumandroid.PdfDocument
 import io.legere.pdfiumandroid.PdfiumCore
 import android.os.ParcelFileDescriptor
+import com.facebook.react.bridge.Arguments
 import java.io.File
 
 class PDFExtractorModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
@@ -68,6 +69,43 @@ class PDFExtractorModule(reactContext: ReactApplicationContext) : ReactContextBa
                 safeResolve(promise, sb.toString())
             } catch (e: Exception) {
                 safeReject(promise, "PDF_ERROR", "Failed to extract text: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    /**
+     * Text of `count` pages from `start` (0-based), one string per page, plus the page count.
+     * Pages stay separate so answers can cite them; nothing is capped.
+     */
+    @ReactMethod
+    fun extractPages(filePath: String, start: Double, count: Double, promise: Promise) {
+        Thread {
+            try {
+                val file = File(filePath.removePrefix("file://"))
+                if (!file.exists()) {
+                    safeReject(promise, "PDF_ERROR", "File not found: $filePath")
+                    return@Thread
+                }
+                val core = PdfiumCore(reactApplicationContext)
+                val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                val doc = core.newDocument(fd)
+                val pageCount = doc.getPageCount()
+                val first = maxOf(0, start.toInt())
+                val last = minOf(pageCount, first + maxOf(0, count.toInt()))
+                val pages = Arguments.createArray()
+                for (i in first until last) {
+                    val sb = StringBuilder()
+                    extractPageText(doc, i, sb)
+                    pages.pushString(sb.toString())
+                }
+                doc.close()
+                fd.close()
+                val result = Arguments.createMap()
+                result.putInt("pageCount", pageCount)
+                result.putArray("pages", pages)
+                safeResolve(promise, result)
+            } catch (e: Exception) {
+                safeReject(promise, "PDF_ERROR", "Failed to read pages: ${e.message}", e)
             }
         }.start()
     }

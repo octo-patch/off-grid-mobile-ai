@@ -33,6 +33,8 @@ export function _clearHooksForTesting(): void {
 
 /** Known hook names, centralised so core and pro stay in sync. */
 export const HOOKS = {
+  /** Chats were deleted (ids): the document services drop what no remaining chat uses. */
+  conversationsDeleted: 'chat.conversationsDeleted',
   /** () => readonly OnboardingSlide[] — optional feature-owned onboarding content. Core owns the
    *  renderer and navigation; feature packages contribute data only. */
   onboardingAdditionalSlides: 'onboarding.additionalSlides',
@@ -85,6 +87,14 @@ export const HOOKS = {
   /** (mutation: KnowledgeDocumentMutation) => void — the RAG owner committed
    *  a document lifecycle change. Pro transfers or reconciles it with peers. */
   syncKnowledgeDocumentMutation: 'sync.knowledgeDocumentMutation',
+  /** (listener: () => void) => () => void — knowledge-base files moving to or from a paired device
+   *  changed. Pro calls it a few times a second at most; free builds register nothing. */
+  syncKnowledgeTransfersSubscribe: 'sync.knowledgeTransfers.subscribe',
+  /** (projectId: string) => KnowledgeDocumentTransfer[] — the project's files moving now, and the
+   *  ones that failed, so the knowledge-base list can draw them. */
+  syncKnowledgeTransfersSnapshot: 'sync.knowledgeTransfers.snapshot',
+  /** (transfer: KnowledgeDocumentTransfer) => void — forget a failed transfer the person has read. */
+  syncKnowledgeTransferDismiss: 'sync.knowledgeTransfers.dismiss',
   /** (text: string, timestamp: number) => void — core copied text locally. Pro records it through
    *  the shared clipboard owner instead of waiting for a delayed native clipboard notification. */
   clipboardRecordLocalText: 'clipboard.recordLocalText',

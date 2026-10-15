@@ -33,6 +33,7 @@ import {
 } from './useChatModelActions';
 import type { GenerationDeps } from './useChatGenerationActions';
 import { getDisplayMessages } from './types';
+import { useDocumentTurnStatusStore } from '../../services/documents/progressStore';
 import { needsVisionRepair } from '../../utils/visionRepair';
 import {
   isSuspiciousRecoveredImageModel,
@@ -303,6 +304,9 @@ export const useChatScreen = () => {
     generatingConversationId === activeConversationId;
   // Replies generating on paired devices. Empty unless Pro's chat-stream service is running.
   const remotePreviews = useRemoteChatStreamPreviews(activeConversationId);
+  const documentStatus = useDocumentTurnStatusStore(s =>
+    activeConversationId ? s.byConversation[activeConversationId] : undefined,
+  );
   const localDeviceId = useSyncIdentityStore(s => s.localDeviceId);
   const displayMessages = useMemo(
     () => getDisplayMessages(activeConversation?.messages || [], {
@@ -314,12 +318,13 @@ export const useChatScreen = () => {
       isModelLoading,
       loadingModelName: loadingModel?.name,
       isGeneratingForThisConversation,
+      documentStatus,
       remotePreviews,
       localDeviceId,
     }),
     [activeConversation?.messages, isThinking, hasStreamingText,
       isStreamingForThisConversation, isModelLoading, loadingModel?.name,
-      isGeneratingForThisConversation, remotePreviews, localDeviceId],
+      isGeneratingForThisConversation, documentStatus, remotePreviews, localDeviceId],
   );
 
   const animateLastN = useChatPresentationLifecycle(

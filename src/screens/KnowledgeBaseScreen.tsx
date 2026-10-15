@@ -19,19 +19,25 @@ import logger from '../utils/logger';
 import { useTheme, useThemedStyles } from '../theme';
 import { createStyles } from './KnowledgeBaseScreen.styles';
 import { useProjectStore } from '../stores';
-import { ragService } from '../services/rag';
-import type { RagDocument } from '../services/rag';
+import { knowledgeBase } from '../services/rag';
+import type { KnowledgeDocument } from '../services/rag';
 import { RootStackParamList } from '../navigation/types';
+import {
+  KnowledgeDocumentInfo,
+  KnowledgeTransferInfo,
+} from '../components/knowledge/KnowledgeDocumentInfo';
+import { useKnowledgeDocumentTransfers } from '../hooks/useKnowledgeDocumentTransfers';
+import {
+  arrivingKnowledgeDocumentTransfers,
+  knowledgeDocumentTransferKey,
+  rowKnowledgeDocumentTransfer,
+  type KnowledgeDocumentTransfer,
+} from '../services/sync/knowledgeDocumentTransfer';
+import { openDocumentPage } from '../components/ChatDocumentsSheet';
 import { isPickerStuck } from '../utils/pickerErrorUtils';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, 'KnowledgeBase'>;
-
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 export const KnowledgeBaseScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -40,8 +46,8 @@ export const KnowledgeBaseScreen: React.FC = () => {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
 
-  const [kbDocs, setKbDocs] = useState<RagDocument[]>([]);
-  const [indexingFile, setIndexingFile] = useState<string | null>(null);
+  const [kbDocs, setKbDocs] = useState<KnowledgeDocument[]>([]);
+  const [addingFile, setAddingFile] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPicking, setIsPicking] = useState(false);
   const [indexError, setIndexError] = useState<{ fileName: string; message: string } | null>(null);
@@ -52,7 +58,7 @@ export const KnowledgeBaseScreen: React.FC = () => {
   const loadKbDocs = useCallback(async () => {
     try {
       setIsLoading(true);
-      setKbDocs(await ragService.getDocumentsByProject(projectId));
+      setKbDocs(await knowledgeBase.getDocumentsByProject(projectId));
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to load documents');
     } finally {
@@ -63,6 +69,19 @@ export const KnowledgeBaseScreen: React.FC = () => {
   useEffect(() => {
     loadKbDocs();
   }, [loadKbDocs]);
+
+  // Files moving to or from paired devices. A received file reloads the list so its own row shows.
+  const reloadQuietly = useCallback(() => {
+    knowledgeBase
+      .getDocumentsByProject(projectId)
+      .then(setKbDocs)
+      .catch(() => undefined);
+  }, [projectId]);
+  const { transfers, dismiss: dismissTransfer } = useKnowledgeDocumentTransfers(projectId, reloadQuietly);
+  const arriving = arrivingKnowledgeDocumentTransfers(
+    transfers,
+    new Set(kbDocs.map((doc) => doc.sync_id)),
+  );
 
   const handleAddDocument = async () => {
     if (isPickingRef.current) {
@@ -88,19 +107,19 @@ export const KnowledgeBaseScreen: React.FC = () => {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const fileName = file.name || 'document';
-        setIndexingFile(files.length > 1 ? `${fileName} (${i + 1}/${files.length})` : fileName);
+        setAddingFile(files.length > 1 ? `${fileName} (${i + 1}/${files.length})` : fileName);
 
         const pathForDb = await resolvePickedFileUri(file.uri, fileName);
-        logger.log(`[KnowledgeBase] indexing file ${i + 1}/${files.length} — name: ${fileName}, path: ${pathForDb?.substring(0, 80)}`);
+        logger.log(`[KnowledgeBase] adding file ${i + 1}/${files.length} — name: ${fileName}, path: ${pathForDb?.substring(0, 80)}`);
 
         try {
-          await ragService.indexDocument({ projectId, filePath: pathForDb, fileName, fileSize: file.size || 0 });
-          logger.log(`[KnowledgeBase] indexed successfully: ${fileName}`);
+          // Adding keeps the file and starts reading it in the background; its row shows the progress.
+          await knowledgeBase.addFile({ projectId, filePath: pathForDb, fileName, fileSize: file.size || 0 });
+          logger.log(`[KnowledgeBase] added: ${fileName}`);
         } catch (indexErr: any) {
-          // The index aborted mid-way and rolled back (ragService.indexDocument is atomic — no
-          // half-indexed doc is left behind). Surface it as a persistent, retriable error card on
-          // the screen rather than a fire-and-forget alert, so the user sees the failure and can retry.
-          logger.error(`[KnowledgeBase] index failed for "${fileName}" — ${indexErr?.message}`);
+          // The file was not added (unsupported, unreadable, or already here). Surface it as a
+          // persistent, retriable error card rather than a fire-and-forget alert.
+          logger.error(`[KnowledgeBase] add failed for "${fileName}" — ${indexErr?.message}`);
           setIndexError({ fileName, message: indexErr?.message || 'Unknown error' });
         }
       }
@@ -120,21 +139,21 @@ export const KnowledgeBaseScreen: React.FC = () => {
     } finally {
       isPickingRef.current = false;
       setIsPicking(false);
-      setIndexingFile(null);
+      setAddingFile(null);
       logger.log('[KnowledgeBase] picker settled, lock released');
     }
   };
 
   const handleToggleDocument = async (docId: number, enabled: boolean) => {
     try {
-      await ragService.toggleDocument(docId, enabled);
+      await knowledgeBase.toggleDocument(docId, enabled);
       await loadKbDocs();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to update document');
     }
   };
 
-  const handleDeleteDocument = (doc: RagDocument) => {
+  const handleDeleteDocument = (doc: KnowledgeDocument) => {
     Alert.alert(
       'Remove Document',
       `Remove "${doc.name}" from the knowledge base?`,
@@ -145,7 +164,7 @@ export const KnowledgeBaseScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await ragService.deleteDocument(doc.id);
+              await knowledgeBase.deleteDocument(doc.id);
               await loadKbDocs();
             } catch (err: any) {
               Alert.alert('Error', err?.message || 'Failed to remove document');
@@ -164,18 +183,25 @@ export const KnowledgeBaseScreen: React.FC = () => {
   // whether a document was in use, and could not toggle it: the whole row read as one button that
   // opens a preview. Opening, toggling and deleting are three different actions and each needs to
   // be reachable on its own.
-  const renderDoc = ({ item }: { item: RagDocument }) => (
+  const renderDoc = ({ item }: { item: KnowledgeDocument }) => (
     <View style={styles.docRow}>
       <TouchableOpacity
         style={styles.docInfo}
-        onPress={() => navigation.navigate('DocumentPreview', { filePath: item.path, fileName: item.name, fileSize: item.size })}
+        onPress={() => {
+          if (item.document_id) openDocumentPage(navigation, { documentId: item.document_id, name: item.name });
+        }}
+        disabled={!item.document_id}
         activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel={`Knowledge document ${item.name}`}
         testID={`knowledge-document-row-${item.sync_id}`}
       >
-        <Text style={styles.docName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.docSize}>{formatFileSize(item.size)}</Text>
+        <KnowledgeDocumentInfo
+          name={item.name}
+          size={item.size}
+          documentId={item.document_id}
+          transfer={rowKnowledgeDocumentTransfer(transfers, item.sync_id)}
+        />
       </TouchableOpacity>
       <Switch
         value={item.enabled === 1}
@@ -196,6 +222,34 @@ export const KnowledgeBaseScreen: React.FC = () => {
     </View>
   );
 
+  const renderArriving = (transfer: KnowledgeDocumentTransfer) => (
+    <View
+      key={knowledgeDocumentTransferKey(transfer)}
+      style={styles.docRow}
+      testID={`knowledge-document-arriving-${transfer.syncId}`}
+    >
+      <Icon
+        name={transfer.status === 'failed' ? 'alert-circle' : 'download'}
+        size={16}
+        color={transfer.status === 'failed' ? colors.error : colors.textMuted}
+        style={styles.transferIcon}
+      />
+      <View style={styles.docInfo}>
+        <KnowledgeTransferInfo transfer={transfer} />
+      </View>
+      {transfer.status === 'failed' && (
+        <TouchableOpacity
+          style={styles.docDelete}
+          onPress={() => dismissTransfer(transfer)}
+          accessibilityRole="button"
+          accessibilityLabel={`Dismiss ${transfer.fileName}`}
+        >
+          <Icon name="x" size={16} color={colors.textMuted} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID="knowledge-base-screen">
       <View style={styles.header}>
@@ -213,8 +267,14 @@ export const KnowledgeBaseScreen: React.FC = () => {
             {project?.name || 'Knowledge Base'}
           </Text>
         </View>
-        <TouchableOpacity onPress={handleAddDocument} style={styles.addButton} disabled={isPicking || !!indexingFile}>
-          {indexingFile ? (
+        <TouchableOpacity
+          onPress={handleAddDocument}
+          style={styles.addButton}
+          disabled={isPicking || !!addingFile}
+          accessibilityRole="button"
+          accessibilityLabel="Add documents"
+        >
+          {addingFile ? (
             <LoadingDots color={colors.primary} />
           ) : (
             <Icon name="plus" size={20} color={colors.primary} />
@@ -222,14 +282,7 @@ export const KnowledgeBaseScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {indexingFile && (
-        <View style={styles.indexingBanner}>
-          <LoadingDots color={colors.primary} />
-          <Text style={styles.indexingText}>Indexing {indexingFile}...</Text>
-        </View>
-      )}
-
-      {indexError && !indexingFile && (
+      {indexError && !addingFile && (
         <View style={styles.errorCard} testID="kb-index-error-card">
           <Icon name="alert-triangle" size={16} color={colors.error} />
           <View style={styles.errorTextWrap}>
@@ -253,7 +306,7 @@ export const KnowledgeBaseScreen: React.FC = () => {
         <View style={styles.centered}>
           <LoadingDots color={colors.primary} size={8} />
         </View>
-      ) : kbDocs.length === 0 ? (
+      ) : kbDocs.length === 0 && arriving.length === 0 ? (
         <View style={styles.centered}>
           <Icon name="file-text" size={40} color={colors.textMuted} />
           <Text style={styles.emptyText}>No documents yet</Text>
@@ -267,6 +320,7 @@ export const KnowledgeBaseScreen: React.FC = () => {
           data={kbDocs}
           renderItem={renderDoc}
           keyExtractor={(item) => String(item.id)}
+          ListHeaderComponent={arriving.length > 0 ? <>{arriving.map(renderArriving)}</> : null}
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}

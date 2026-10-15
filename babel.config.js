@@ -17,6 +17,9 @@ module.exports = {
   presets: ['module:@react-native/babel-preset'],
   plugins: [
     !isTest && ['babel-plugin-react-compiler', { target: '19' }],
+    // Metro bundles `import()` itself; jest runs CommonJS without --experimental-vm-modules, so the test
+    // build turns a dynamic import into a deferred require (the same module, loaded on first use).
+    isTest && '@babel/plugin-transform-dynamic-import',
     'react-native-worklets/plugin',
     withE2eCoverage && [
       'babel-plugin-istanbul',

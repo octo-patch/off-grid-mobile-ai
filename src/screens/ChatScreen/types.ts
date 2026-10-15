@@ -305,6 +305,8 @@ export type StreamingState = {
   isModelLoading?: boolean;
   loadingModelName?: string;
   isGeneratingForThisConversation?: boolean;
+  /** What the turn is doing with its documents before the model starts ("Searching 3 documents…"). */
+  documentStatus?: string;
   /** Live previews from paired devices. Empty in free builds and when nothing is generating. */
   remotePreviews?: readonly RemoteStreamItem[];
   /** This device's mesh id, so a peer's runtime notices can be told apart from its own. */
@@ -448,6 +450,25 @@ function localDisplayMessages(
         content: streaming.loadingModelName
           ? `Loading ${streaming.loadingModelName}...`
           : 'Loading model...',
+        timestamp: Date.now(),
+        isThinking: true,
+      },
+    ];
+  }
+  // The turn is opening, searching or ranking its documents: say so in the same loader row.
+  if (
+    streaming.documentStatus &&
+    (streaming.isGeneratingForThisConversation || isStreamingForThisConversation) &&
+    !streamingMessage &&
+    !streamingReasoningContent &&
+    !streaming.hasStreamingText
+  ) {
+    return [
+      ...allMessages,
+      {
+        id: 'thinking',
+        role: 'assistant' as const,
+        content: streaming.documentStatus,
         timestamp: Date.now(),
         isThinking: true,
       },

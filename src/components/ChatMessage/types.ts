@@ -1,4 +1,4 @@
-import { MediaAttachment, Message } from '../../types';
+import { DocumentCitation, MediaAttachment, Message } from '../../types';
 
 export interface ChatMessageProps {
   /**
@@ -14,6 +14,8 @@ export interface ChatMessageProps {
   supportingContext?: Message;
   isStreaming?: boolean;
   onImagePress?: (uri: string) => void;
+  /** A page citation in an answer was tapped. */
+  onCitationPress?: (source: DocumentCitation) => void;
   onCopy?: (content: string) => void;
   onRetry?: (message: Message) => void;
   onEdit?: (message: Message, newContent: string) => void;

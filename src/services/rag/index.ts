@@ -1,23 +1,27 @@
-import { ragDatabase } from './database';
-import { chunkDocument } from './chunking';
-import { retrievalService } from './retrieval';
-import { embeddingService } from './embedding';
+// The project knowledge base on the phone: which files belong to a project, kept and synced. The
+// files themselves are read, indexed, searched and cited by the shared document engine
+// (services/documents), exactly like documents attached to a chat. Nothing here reads text.
+
+import RNFS from 'react-native-fs';
+import type { DocumentSource } from '@offgrid/rag/documents';
+import { ragDatabase, type KnowledgeDocument } from './database';
 import { documentService } from '../documentService';
 import { writePastedNote } from './pastedNote';
+import {
+  knowledgeDocumentIds,
+  knowledgeDocumentKind,
+  knowledgeSources,
+  localPath,
+  resolveDocumentIds,
+} from '../documents/project';
 import {
   emitKnowledgeDocumentMutation,
   type KnowledgeDocumentSnapshot,
 } from '../sync/knowledgeDocument';
-import logger from '../../utils/logger';
 
-export type { RagDocument, RagSearchResult } from './database';
-export { retrievalService } from './retrieval';
-interface IndexProgress {
-  stage: 'extracting' | 'chunking' | 'indexing' | 'embedding' | 'done';
-  message: string;
-}
+export type { KnowledgeDocument } from './database';
 
-interface IndexDocumentParams {
+interface AddFileParams {
   projectId: string;
   filePath: string;
   fileName: string;
@@ -26,179 +30,110 @@ interface IndexDocumentParams {
   createdAt?: string;
   enabled?: boolean;
   origin?: 'local' | 'sync';
-  onProgress?: (progress: IndexProgress) => void;
 }
 
-class RagService {
+/** Kept copies of added files live here (documentService.attachDocument). Only these are removed. */
+const KEPT_COPIES_DIRECTORY = `${RNFS.DocumentDirectoryPath}/attachments/`;
+
+
+/** Loaded lazily: the document services read this knowledge base. */
+function documentServices() {
+  return import('../documents');
+}
+
+class KnowledgeBase {
   async ensureReady(): Promise<void> {
     await ragDatabase.ensureReady();
   }
 
-  async indexDocument(params: IndexDocumentParams): Promise<number> {
-    const { projectId, filePath, fileName, fileSize, onProgress } = params;
+  /**
+   * Add a file to a project. The file is kept, hashed and read in the background by the document
+   * engine; the row appears at once and shows its reading progress.
+   */
+  async addFile(params: AddFileParams): Promise<number> {
+    const { projectId, filePath, fileName, fileSize } = params;
     await this.ensureReady();
-
-    // Prevent duplicate indexing of the same file
     const existing = ragDatabase.getDocumentsByProject(projectId);
     if (existing.some(d => d.path === filePath || d.name === fileName)) {
-      throw new Error(
-        `Document "${fileName}" is already in the knowledge base`,
-      );
+      throw new Error(`Document "${fileName}" is already in the knowledge base`);
     }
-
-    onProgress?.({
-      stage: 'extracting',
-      message: `Extracting text from ${fileName}...`,
-    });
-    // Extract full document text for RAG — don't truncate based on context window
-    const RAG_MAX_CHARS = 500_000;
-    const attachment = await documentService.processDocumentFromPath(
-      filePath,
-      fileName,
-      RAG_MAX_CHARS,
-    );
-    if (!attachment?.textContent) {
-      // A PDF that extracts to zero text is a scanned / image-only PDF (no text layer);
-      // there is no on-device OCR, so name that cause instead of a generic failure (B-KB).
-      const isPdf = fileName.toLowerCase().endsWith('.pdf');
-      throw new Error(
-        isPdf
-          ? 'This looks like a scanned PDF with no text layer, so there was no text to extract (OCR is not available).'
-          : 'Could not extract text from document',
-      );
+    const attachment = await documentService.attachDocument(filePath, fileName);
+    const documentId = attachment.documentId;
+    if (!documentId) throw new Error(`Could not read "${fileName}"`);
+    if (
+      params.origin !== 'sync' &&
+      existing.some(d => d.document_id === documentId)
+    ) {
+      await this.removeKeptCopy(attachment.uri);
+      throw new Error(`"${fileName}" is already in the knowledge base`);
     }
-
-    onProgress?.({ stage: 'chunking', message: 'Splitting into chunks...' });
-    const chunks = chunkDocument(attachment.textContent);
-    if (chunks.length === 0) {
-      throw new Error('Document produced no indexable content');
-    }
-
-    onProgress?.({ stage: 'indexing', message: 'Indexing chunks...' });
     const docId = ragDatabase.insertDocument({
       projectId,
       name: fileName,
-      path: attachment.uri || filePath,
+      path: attachment.uri,
       size: attachment.fileSize ?? fileSize,
+      documentId,
       syncId: params.syncId,
       createdAt: params.createdAt,
       enabled: params.enabled,
     });
-    const rowIds = ragDatabase.insertChunks(docId, chunks);
-
-    onProgress?.({ stage: 'embedding', message: 'Generating embeddings...' });
-    try {
-      await embeddingService.load();
-      const texts = chunks.map(c => c.content);
-      const embeddings = await embeddingService.embedBatch(texts);
-      const entries = rowIds.map((rowId, i) => ({
-        chunkRowid: rowId,
-        docId,
-        embedding: embeddings[i],
-      }));
-      ragDatabase.insertEmbeddingsBatch(entries);
-      logger.log(
-        `[RAG] Generated ${embeddings.length} embeddings for ${fileName}`,
-      );
-    } catch (err) {
-      // A document with zero embeddings is invisible to semantic search and never
-      // auto-backfilled — a permanent dead entry. Roll back the just-inserted doc + chunks
-      // and surface the failure so the KB screen reports it, rather than swallowing it.
-      logger.error(
-        '[RAG] Embedding generation failed — rolling back index:',
-        err,
-      );
-      ragDatabase.deleteDocument(docId);
-      throw err instanceof Error
-        ? err
-        : new Error('Embedding generation failed');
-    }
-
-    onProgress?.({ stage: 'done', message: 'Done' });
-    logger.log(`[RAG] Indexed ${fileName}: ${chunks.length} chunks`);
-    const indexed = ragDatabase.getDocument(docId);
-    if (indexed && params.origin !== 'sync') {
+    const added = ragDatabase.getDocument(docId);
+    if (added && params.origin !== 'sync') {
       emitKnowledgeDocumentMutation({
         kind: 'indexed',
-        document: this.snapshot(indexed),
+        document: this.snapshot(added),
       });
     }
     return docId;
   }
 
   /**
-   * Index text the user pasted in, as a document of its own.
-   *
-   * Written to a .txt first and then handed to indexDocument, so a note gets the same dedupe,
-   * chunking, embedding, rollback-on-failure and sync emission as an imported file. Nothing here
-   * knows it was pasted.
+   * Add text the user pasted in, as a document of its own: written to a .txt, then added like any
+   * file, so a note gets the same dedupe, reading, citations and sync.
    */
-  async indexPastedText(params: {
+  async addPastedText(params: {
     projectId: string;
     title: string;
     text: string;
-    onProgress?: (progress: IndexProgress) => void;
   }): Promise<number> {
     const trimmed = params.text.trim();
     if (!trimmed) throw new Error('There is no text to save.');
     const note = await writePastedNote(params.title, trimmed);
-    return this.indexDocument({
-      projectId: params.projectId,
-      filePath: note.filePath,
-      fileName: note.fileName,
-      fileSize: note.fileSize,
-      onProgress: params.onProgress,
-    });
-  }
-
-  async backfillEmbeddings(projectId: string): Promise<number> {
-    await this.ensureReady();
-    const docs = ragDatabase.getDocumentsByProject(projectId);
-    let total = 0;
-
-    for (const doc of docs) {
-      if (ragDatabase.hasEmbeddingsForDocument(doc.id)) continue;
-
-      const chunks = ragDatabase.getChunksByDocument(doc.id);
-      if (chunks.length === 0) continue;
-
-      try {
-        await embeddingService.load();
-        const texts = chunks.map(c => c.content);
-        const embeddings = await embeddingService.embedBatch(texts);
-        const entries = chunks.map((chunk, i) => ({
-          chunkRowid: chunk.id,
-          docId: doc.id,
-          embedding: embeddings[i],
-        }));
-        ragDatabase.insertEmbeddingsBatch(entries);
-        total += embeddings.length;
-        logger.log(
-          `[RAG] Backfilled ${embeddings.length} embeddings for ${doc.name}`,
-        );
-      } catch (err) {
-        logger.error(`[RAG] Backfill failed for ${doc.name}:`, err);
-      }
+    let keptPath: string | undefined;
+    try {
+      const docId = await this.addFile({
+        projectId: params.projectId,
+        filePath: note.filePath,
+        fileName: note.fileName,
+        fileSize: note.fileSize,
+      });
+      keptPath = ragDatabase.getDocument(docId)?.path;
+      return docId;
+    } finally {
+      // The kept copy is what the knowledge base uses; the written note is only its source.
+      if (keptPath !== note.filePath) RNFS.unlink(note.filePath).catch(() => {});
     }
-
-    return total;
   }
 
   async deleteDocument(docId: number): Promise<void> {
     await this.ensureReady();
     const document = ragDatabase.getDocument(docId);
     ragDatabase.deleteDocument(docId);
-    if (document) {
-      emitKnowledgeDocumentMutation({
-        kind: 'deleted',
-        syncId: document.sync_id,
-      });
-    }
+    if (!document) return;
+    emitKnowledgeDocumentMutation({ kind: 'deleted', syncId: document.sync_id });
+    await this.afterRemoval([document]);
   }
 
-  async getDocumentsByProject(projectId: string) {
+  /**
+   * A project's files, newest first. Rows made before documents had ids are hashed here, and files
+   * whose reading stopped (the app closed) carry on, so every row can show where it stands.
+   */
+  async getDocumentsByProject(projectId: string): Promise<KnowledgeDocument[]> {
     await this.ensureReady();
-    return ragDatabase.getDocumentsByProject(projectId);
+    const rows = ragDatabase.getDocumentsByProject(projectId);
+    await this.resolveDocumentIds(rows);
+    this.resumeReading(rows).catch(() => undefined);
+    return rows;
   }
 
   async toggleDocument(docId: number, enabled: boolean): Promise<void> {
@@ -214,32 +149,24 @@ class RagService {
     }
   }
 
-  async searchProject(
-    projectId: string,
-    query: string,
-    contextLength?: number,
-  ) {
-    await this.ensureReady();
-    if (contextLength) {
-      return retrievalService.searchWithBudget({
-        projectId,
-        query,
-        contextLength,
-      });
-    }
-    return retrievalService.search(projectId, query);
-  }
-
   async deleteProjectDocuments(projectId: string): Promise<void> {
     await this.ensureReady();
     const documents = ragDatabase.getDocumentsByProject(projectId);
     ragDatabase.deleteDocumentsByProject(projectId);
     for (const document of documents) {
-      emitKnowledgeDocumentMutation({
-        kind: 'deleted',
-        syncId: document.sync_id,
-      });
+      emitKnowledgeDocumentMutation({ kind: 'deleted', syncId: document.sync_id });
     }
+    await this.afterRemoval(documents);
+  }
+
+  /** The enabled files of a project, as the document engine reads them. */
+  async sourcesForProject(projectId: string): Promise<DocumentSource[]> {
+    return knowledgeSources(projectId);
+  }
+
+  /** Every document id any knowledge base uses (the document index must keep them). */
+  async documentIds(): Promise<string[]> {
+    return knowledgeDocumentIds();
   }
 
   async getAllDocumentsForSync(): Promise<KnowledgeDocumentSnapshot[]> {
@@ -247,6 +174,14 @@ class RagService {
     return ragDatabase
       .getAllDocuments()
       .map(document => this.snapshot(document));
+  }
+
+  async getDocumentBySyncId(
+    syncId: string,
+  ): Promise<KnowledgeDocumentSnapshot | undefined> {
+    await this.ensureReady();
+    const document = ragDatabase.getDocumentBySyncId(syncId);
+    return document ? this.snapshot(document) : undefined;
   }
 
   async indexSyncedDocument(
@@ -260,8 +195,7 @@ class RagService {
       }
       return existing.id;
     }
-
-    return this.indexDocument({
+    return this.addFile({
       projectId: document.projectId,
       filePath: document.filePath,
       fileName: document.name,
@@ -285,12 +219,57 @@ class RagService {
   async deleteSyncedDocument(syncId: string): Promise<void> {
     await this.ensureReady();
     const document = ragDatabase.getDocumentBySyncId(syncId);
-    if (document) ragDatabase.deleteDocument(document.id);
+    if (!document) return;
+    ragDatabase.deleteDocument(document.id);
+    await this.afterRemoval([document]);
   }
 
-  private snapshot(
-    document: import('./database').RagDocument,
-  ): KnowledgeDocumentSnapshot {
+  /** Rows added before files had document ids get their id now, and their reading starts. */
+  private async resolveDocumentIds(rows: KnowledgeDocument[]): Promise<void> {
+    const identified = await resolveDocumentIds(rows);
+    if (!identified.length) return;
+    const { startDocumentIngest } = await documentServices();
+    for (const row of identified) {
+      startDocumentIngest({
+        id: row.document_id!,
+        name: row.name,
+        kind: knowledgeDocumentKind(row.name),
+        path: localPath(row.path),
+      });
+    }
+  }
+
+  /** Files whose reading has not finished (or whose index entry is gone) carry on reading. */
+  private async resumeReading(rows: KnowledgeDocument[]): Promise<void> {
+    const { documentIngest, documentStore, startDocumentIngest } =
+      await documentServices();
+    for (const row of rows) {
+      if (!row.document_id || documentIngest.isRunning(row.document_id)) continue;
+      const stored = await documentStore.getDocument(row.document_id);
+      if (stored && (stored.state === 'ready' || stored.state === 'failed')) continue;
+      startDocumentIngest({
+        id: row.document_id,
+        name: row.name,
+        kind: knowledgeDocumentKind(row.name),
+        path: localPath(row.path),
+      });
+    }
+  }
+
+  /** Removed rows: delete their kept copies and the index entries nothing else uses. */
+  private async afterRemoval(documents: KnowledgeDocument[]): Promise<void> {
+    for (const document of documents) await this.removeKeptCopy(document.path);
+    (await documentServices()).forgetUnreferencedDocuments().catch(() => undefined);
+  }
+
+  private async removeKeptCopy(uri: string): Promise<void> {
+    const path = localPath(uri);
+    if (!path.startsWith(KEPT_COPIES_DIRECTORY)) return;
+    if (ragDatabase.countByPath(uri) > 0) return;
+    await RNFS.unlink(path).catch(() => undefined);
+  }
+
+  private snapshot(document: KnowledgeDocument): KnowledgeDocumentSnapshot {
     return {
       syncId: document.sync_id,
       projectId: document.project_id,
@@ -303,4 +282,4 @@ class RagService {
   }
 }
 
-export const ragService = new RagService();
+export const knowledgeBase = new KnowledgeBase();

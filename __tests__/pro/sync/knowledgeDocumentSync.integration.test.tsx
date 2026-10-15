@@ -105,7 +105,7 @@ describe('Pro mobile knowledge document sync journey', () => {
     } = require('../../../src/bootstrap/hookRegistry');
     const { useAppStore } = require('../../../src/stores/appStore');
     const { useChatStore } = require('../../../src/stores/chatStore');
-    const { ragService } = require('../../../src/services/rag');
+    const { knowledgeBase } = require('../../../src/services/rag');
     const { buildSyncEngine } = require('../../../src/services/sync/engine');
     const {
       knowledgeDocumentSyncService,
@@ -285,7 +285,7 @@ describe('Pro mobile knowledge document sync journey', () => {
       const prePairText =
         'This knowledge document existed on the phone before the desktop paired.';
       await RNFS.writeFile(prePairPath, prePairText, 'utf8');
-      await ragService.indexDocument({
+      await knowledgeBase.addFile({
         projectId: prePairProjectId,
         filePath: prePairPath,
         fileName: 'phone-before-pair.txt',
@@ -383,7 +383,7 @@ describe('Pro mobile knowledge document sync journey', () => {
           new Uint8Array(remoteBytes.subarray(offset, offset + length)),
       });
       expect(
-        (await ragService.getAllDocumentsForSync()).some(
+        (await knowledgeBase.getAllDocumentsForSync()).some(
           (document: { syncId: string }) =>
             document.syncId === remoteDocumentId,
         ),
@@ -411,13 +411,13 @@ describe('Pro mobile knowledge document sync journey', () => {
 
       await waitForCondition(
         async () =>
-          (await ragService.getAllDocumentsForSync()).some(
+          (await knowledgeBase.getAllDocumentsForSync()).some(
             (document: { syncId: string }) =>
               document.syncId === remoteDocumentId,
           ),
         'Mobile did not index the streamed Desktop document',
       );
-      expect(await ragService.getDocumentsByProject(remoteProjectId)).toEqual([
+      expect(await knowledgeBase.getDocumentsByProject(remoteProjectId)).toEqual([
         expect.objectContaining({
           name: 'launch-brief.txt',
           project_id: remoteProjectId,
@@ -443,7 +443,7 @@ describe('Pro mobile knowledge document sync journey', () => {
       // checksum and resumes at the end, so no payload crosses the mesh and no document is re-indexed.
       expect(repeatedReads).toBe(0);
       expect(
-        (await ragService.getAllDocumentsForSync()).filter(
+        (await knowledgeBase.getAllDocumentsForSync()).filter(
           (document: { syncId: string }) =>
             document.syncId === remoteDocumentId,
         ),
@@ -519,7 +519,7 @@ describe('Pro mobile knowledge document sync journey', () => {
       await waitForCondition(
         async () =>
           !(
-            await ragService.getAllDocumentsForSync()
+            await knowledgeBase.getAllDocumentsForSync()
           ).some(
             (document: { syncId: string }) =>
               document.syncId === remoteDocumentId,

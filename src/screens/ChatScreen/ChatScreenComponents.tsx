@@ -82,7 +82,10 @@ export const ChatHeader: React.FC<{
   setShowSettingsPanel: (v: boolean) => void;
   setShowProjectSelector: (v: boolean) => void;
   isRemote?: boolean;
-}> = ({ styles, colors, activeConversation, activeProject, navigation, onOpenModels, setShowSettingsPanel, setShowProjectSelector, isRemote }) => (
+  /** Documents attached in this chat; the Documents button shows only when there are some. */
+  documentCount?: number;
+  onOpenDocuments?: () => void;
+}> = ({ styles, colors, activeConversation, activeProject, navigation, onOpenModels, setShowSettingsPanel, setShowProjectSelector, isRemote, documentCount, onOpenDocuments }) => (
   <View style={styles.header}>
     <View style={styles.headerRow}>
       <TouchableOpacity
@@ -120,6 +123,17 @@ export const ChatHeader: React.FC<{
       <View style={styles.headerActions}>
         {/* Pro-only Voice mode sits beside the conversation filters. Empty in free builds. */}
         {(() => { const ModeToggle = getSlot(SLOTS.chatInputModeToggle); return ModeToggle ? <ModeToggle /> : null; })()}
+        {!!documentCount && onOpenDocuments && (
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onOpenDocuments}
+            testID="chat-documents-icon"
+            accessibilityRole="button"
+            accessibilityLabel={`Documents in this chat: ${documentCount}`}
+          >
+            <Icon name="file-text" size={16} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.iconButton} onPress={() => setShowSettingsPanel(true)} testID="chat-settings-icon">
           <Icon name="sliders" size={16} color={colors.textSecondary} />
         </TouchableOpacity>

@@ -35,6 +35,7 @@ describe('knowledge document Sync identity', () => {
       name: 'new.txt',
       path: '/docs/new.txt',
       size: 7,
+      documentId: 'sha256-of-new-txt',
     });
     const newDocument = ragDatabase.getDocument(newDocumentId);
 

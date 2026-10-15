@@ -12,7 +12,14 @@ export type RootStackParamList = {
   ProjectEdit: { projectId?: string };
   ProjectChats: { projectId: string };
   KnowledgeBase: { projectId: string };
-  DocumentPreview: { filePath: string; fileName: string; fileSize: number };
+  DocumentPreview: {
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    /** An attached document's index: show its stored pages, opened at `page`. */
+    documentId?: string;
+    page?: number;
+  };
   // Former SettingsStack
   ModelSettings: undefined;
   RemoteServers: undefined;

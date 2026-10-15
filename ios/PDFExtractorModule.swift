@@ -119,4 +119,43 @@ class PDFExtractorModule: NSObject {
       resolve(fullText)
     }
   }
+
+  // One PDF stays open between page batches, so a long book is not re-opened for every batch.
+  private var openPath: String?
+  private var openDocument: PDFDocument?
+  private let documentLock = NSLock()
+
+  private func document(at filePath: String) -> PDFDocument? {
+    documentLock.lock()
+    defer { documentLock.unlock() }
+    if openPath == filePath, let document = openDocument { return document }
+    let url = filePath.hasPrefix("file://") ? URL(string: filePath) : URL(fileURLWithPath: filePath)
+    guard let url = url, let document = PDFDocument(url: url) else { return nil }
+    openPath = filePath
+    openDocument = document
+    return document
+  }
+
+  /// Text of `count` pages from `start` (0-based), one string per page, plus the page count.
+  /// Pages stay separate so answers can cite them; nothing is capped.
+  @objc
+  func extractPages(_ filePath: String, start: Double, count: Double, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    DispatchQueue.global(qos: .utility).async {
+      guard let document = self.document(at: filePath) else {
+        reject("PDF_ERROR", "Could not open PDF file", nil as NSError?)
+        return
+      }
+      let first = max(0, Int(start))
+      let last = min(document.pageCount, first + max(0, Int(count)))
+      var pages: [String] = []
+      if first < last {
+        for pageIndex in first..<last {
+          autoreleasepool {
+            pages.append(document.page(at: pageIndex)?.string ?? "")
+          }
+        }
+      }
+      resolve(["pageCount": document.pageCount, "pages": pages])
+    }
+  }
 }

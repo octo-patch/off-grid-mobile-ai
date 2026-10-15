@@ -37,6 +37,25 @@ class PDFExtractor {
       throw error;
     }
   }
+
+  /**
+   * Text of `count` pages from `start` (0-based), one string per page, and the page count.
+   * Read in batches by the document index, so a long book never crosses the bridge at once.
+   */
+  async extractPages(
+    filePath: string,
+    start: number,
+    count: number,
+  ): Promise<{ pageCount: number; pages: string[] }> {
+    if (!this.isAvailable()) {
+      throw new Error('PDF extraction is not available on this platform');
+    }
+    const result = await PDFExtractorModule.extractPages(filePath, start, count);
+    return {
+      pageCount: Number(result?.pageCount) || 0,
+      pages: Array.isArray(result?.pages) ? result.pages.map((page: unknown) => String(page ?? '')) : [],
+    };
+  }
 }
 
 export const pdfExtractor = new PDFExtractor();

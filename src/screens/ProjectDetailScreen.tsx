@@ -20,6 +20,7 @@ import { useChatStore, useProjectStore, useAppStore } from '../stores';
 import { Conversation } from '../types';
 import { RootStackParamList } from '../navigation/types';
 import { KnowledgeBaseSection } from './ProjectDetailKnowledgeBaseSection';
+import { openDocumentPage } from '../components/ChatDocumentsSheet';
 import { formatWhen } from '../utils/localTime';
 import { useConversationPreviewLine } from '../hooks/useConversationPreviewLine';
 import { PROJECT_DELETE_FALLBACK_REASON } from '../stores/projectDeleteOutcome';
@@ -233,10 +234,9 @@ export const ProjectDetailScreen: React.FC = () => {
               navigation.navigate('KnowledgeBase', { projectId })
             }
             onDocumentPress={doc =>
-              navigation.navigate('DocumentPreview', {
-                filePath: doc.path,
-                fileName: doc.name,
-                fileSize: doc.size,
+              openDocumentPage(navigation, {
+                documentId: doc.document_id,
+                name: doc.name,
               })
             }
           />
