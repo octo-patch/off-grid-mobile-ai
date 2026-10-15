@@ -8,10 +8,16 @@ import { ragDatabase, type KnowledgeDocument } from './database';
 import { documentService } from '../documentService';
 import { writePastedNote } from './pastedNote';
 import {
+  knowledgeDocumentIds,
+  knowledgeDocumentKind,
+  knowledgeSources,
+  localPath,
+  resolveDocumentIds,
+} from '../documents/project';
+import {
   emitKnowledgeDocumentMutation,
   type KnowledgeDocumentSnapshot,
 } from '../sync/knowledgeDocument';
-import logger from '../../utils/logger';
 
 export type { KnowledgeDocument } from './database';
 
@@ -29,14 +35,6 @@ interface AddFileParams {
 /** Kept copies of added files live here (documentService.attachDocument). Only these are removed. */
 const KEPT_COPIES_DIRECTORY = `${RNFS.DocumentDirectoryPath}/attachments/`;
 
-function localPath(path: string): string {
-  return path.replace(/^file:\/\//, '');
-}
-
-/** How the document engine reads a knowledge-base file. The phone knowledge base holds PDFs and text. */
-export function knowledgeDocumentKind(name: string): 'pdf' | 'text' {
-  return name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'text';
-}
 
 /** Loaded lazily: the document services read this knowledge base. */
 function documentServices() {
@@ -44,9 +42,6 @@ function documentServices() {
 }
 
 class KnowledgeBase {
-  /** Legacy rows being hashed, so two readers never hash the same file twice. */
-  private hashing = new Map<number, Promise<string | null>>();
-
   async ensureReady(): Promise<void> {
     await ragDatabase.ensureReady();
   }
@@ -166,25 +161,12 @@ class KnowledgeBase {
 
   /** The enabled files of a project, as the document engine reads them. */
   async sourcesForProject(projectId: string): Promise<DocumentSource[]> {
-    await this.ensureReady();
-    const rows = ragDatabase.getEnabledDocumentsByProject(projectId);
-    await this.resolveDocumentIds(rows);
-    return rows
-      .filter((row): row is KnowledgeDocument & { document_id: string } =>
-        Boolean(row.document_id),
-      )
-      .map(row => ({
-        id: row.document_id,
-        name: row.name,
-        kind: knowledgeDocumentKind(row.name),
-        path: localPath(row.path),
-      }));
+    return knowledgeSources(projectId);
   }
 
   /** Every document id any knowledge base uses (the document index must keep them). */
   async documentIds(): Promise<string[]> {
-    await this.ensureReady();
-    return ragDatabase.getAllDocumentIds();
+    return knowledgeDocumentIds();
   }
 
   async getAllDocumentsForSync(): Promise<KnowledgeDocumentSnapshot[]> {
@@ -242,36 +224,18 @@ class KnowledgeBase {
     await this.afterRemoval([document]);
   }
 
-  /** Hash rows added before documents had ids (once each) and start reading them. A missing file is skipped. */
+  /** Rows added before files had document ids get their id now, and their reading starts. */
   private async resolveDocumentIds(rows: KnowledgeDocument[]): Promise<void> {
-    for (const row of rows) {
-      if (row.document_id) continue;
-      let pending = this.hashing.get(row.id);
-      if (!pending) {
-        pending = this.hashLegacyRow(row).finally(() => this.hashing.delete(row.id));
-        this.hashing.set(row.id, pending);
-      }
-      const documentId = await pending;
-      if (documentId) row.document_id = documentId;
-    }
-  }
-
-  private async hashLegacyRow(row: KnowledgeDocument): Promise<string | null> {
-    const path = localPath(row.path);
-    try {
-      if (!(await RNFS.exists(path))) return null;
-      const documentId = await RNFS.hash(path, 'sha256');
-      ragDatabase.setDocumentId(row.id, documentId);
-      (await documentServices()).startDocumentIngest({
-        id: documentId,
+    const identified = await resolveDocumentIds(rows);
+    if (!identified.length) return;
+    const { startDocumentIngest } = await documentServices();
+    for (const row of identified) {
+      startDocumentIngest({
+        id: row.document_id!,
         name: row.name,
         kind: knowledgeDocumentKind(row.name),
-        path,
+        path: localPath(row.path),
       });
-      return documentId;
-    } catch (error) {
-      logger.warn(`[KnowledgeBase] Could not hash "${row.name}":`, error);
-      return null;
     }
   }
 

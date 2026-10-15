@@ -11,6 +11,7 @@ import {
 } from '@offgrid/rag/documents';
 import { useChatStore } from '../../stores/chatStore';
 import logger from '../../utils/logger';
+import { HOOKS, registerHook } from '../../bootstrap/hookRegistry';
 import { conversationDocuments, referencedDocumentIds } from './conversation';
 import { documentExtractor } from './extract';
 import { documentEmbedder } from './models';
@@ -63,5 +64,10 @@ export async function forgetUnreferencedDocuments(conversationIds: string[] = []
     warn('Removing documents of a deleted chat failed', error);
   }
 }
+
+// Deleted chats are announced by the chat store, which these services read (so it cannot import them).
+registerHook(HOOKS.conversationsDeleted, (conversationIds: string[]) => {
+  forgetUnreferencedDocuments(conversationIds).catch(() => undefined);
+});
 
 export { documentStore };

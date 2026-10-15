@@ -33,6 +33,8 @@ export function _clearHooksForTesting(): void {
 
 /** Known hook names, centralised so core and pro stay in sync. */
 export const HOOKS = {
+  /** Chats were deleted (ids): the document services drop what no remaining chat uses. */
+  conversationsDeleted: 'chat.conversationsDeleted',
   /** () => readonly OnboardingSlide[] — optional feature-owned onboarding content. Core owns the
    *  renderer and navigation; feature packages contribute data only. */
   onboardingAdditionalSlides: 'onboarding.additionalSlides',

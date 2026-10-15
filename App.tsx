@@ -343,6 +343,8 @@ function App() {
 
       // Initialize RAG database tables
       knowledgeBase.ensureReady().catch((err) => logger.error('Failed to open the knowledge base on startup', err));
+      // The document services register for chat deletions (they free index entries no chat uses).
+      import('./src/services/documents').catch((err) => logger.error('Failed to start document services', err));
 
       try {
         // Register the private Pro entitlement provider before the first status

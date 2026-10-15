@@ -11,8 +11,6 @@ import type { ThemeColors, ThemeShadows } from '../theme';
 import { TYPOGRAPHY, SPACING } from '../constants';
 import { useDocumentProgressStore } from '../services/documents/progressStore';
 import { documentStore, excludedDocuments, setDocumentExcluded } from '../services/documents/store';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/types';
 import type { Conversation } from '../types';
 
 export interface ChatDocument {
@@ -160,7 +158,13 @@ const createStyles = (colors: ThemeColors, _shadows: ThemeShadows) => ({
   },
 });
 
-type RootNavigation = NativeStackNavigationProp<RootStackParamList>;
+/** What opening a document needs from the navigator (a component does not import the app's routes). */
+type RootNavigation = {
+  navigate: (
+    screen: 'DocumentPreview',
+    params: { filePath: string; fileName: string; fileSize: number; documentId?: string; page?: number },
+  ) => void;
+};
 
 /** Open a document's stored pages, at `page` when given (a tapped citation). */
 export function openDocumentPage(

@@ -160,16 +160,6 @@ type StreamingFields = Pick<
  * and whichever copy was missed would leak that field into the next reply. The type is a `Pick`, so
  * adding a streaming field is a compile error here until it is given a cleared value.
  */
-/**
- * Deleted chats: drop the document index entries no remaining chat uses. Loaded lazily, since the
- * document services read this store.
- */
-function forgetChatDocuments(conversationIds: string[]): void {
-  import('../services/documents')
-    .then(documents => documents.forgetUnreferencedDocuments(conversationIds))
-    .catch(() => undefined);
-}
-
 const MODEL_NOT_LOADING = {
   isModelLoading: false,
   loadingModelName: null,
@@ -243,7 +233,8 @@ export const useChatStore = create<ChatState>()(
           emitSyncMutation(
             deleteSyncMutation(CORE_SYNC_ENTITIES.conversation, conversationId),
           );
-        forgetChatDocuments([conversationId]);
+        // The document services free index entries no remaining chat uses (they read this store).
+        callHook(HOOKS.conversationsDeleted, [conversationId]);
       },
 
       setActiveConversation: conversationId => {
@@ -486,7 +477,7 @@ export const useChatStore = create<ChatState>()(
       clearAllConversations: () => {
         const removed = get().conversations;
         set({ conversations: [], activeConversationId: null });
-        forgetChatDocuments(removed.map(conversation => conversation.id));
+        callHook(HOOKS.conversationsDeleted, removed.map(conversation => conversation.id));
         for (const conversation of removed) {
           for (const message of conversation.messages) {
             if (message.uuid)

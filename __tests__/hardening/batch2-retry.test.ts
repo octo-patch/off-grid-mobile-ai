@@ -27,8 +27,9 @@ jest.mock('../../src/services/hardware', () => ({
   hardwareService: { getAvailableMemoryGB: jest.fn(() => 4), getTotalMemoryGB: jest.fn(() => 8) },
 }));
 jest.mock('../../src/bootstrap/hookRegistry', () => ({
-  HOOKS: { audioStop: 'audio.stop' },
+  HOOKS: { audioStop: 'audio.stop', conversationsDeleted: 'chat.conversationsDeleted' },
   callHook: jest.fn(),
+  registerHook: () => () => undefined,
 }));
 
 import { handleRetryMessageFn } from '../../src/screens/ChatScreen/useChatMessageHandlers';

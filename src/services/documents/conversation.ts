@@ -6,7 +6,7 @@ import RNFS from 'react-native-fs';
 import type { ConversationDocumentsPort, DocumentSource } from '@offgrid/rag/documents';
 import { useChatStore } from '../../stores/chatStore';
 import type { MediaAttachment } from '../../types';
-import { knowledgeBase } from '../rag';
+import { knowledgeDocumentIds } from './project';
 import { excludedDocuments } from './store';
 
 const legacyIds = new Map<string, string>();
@@ -67,7 +67,7 @@ export const conversationDocuments: ConversationDocumentsPort = {
 
 /** Every document id some chat or project knowledge base still references (for cleanup after a delete). */
 export async function referencedDocumentIds(): Promise<Set<string>> {
-  const ids = new Set<string>(await knowledgeBase.documentIds());
+  const ids = new Set<string>(await knowledgeDocumentIds());
   for (const conversation of useChatStore.getState().conversations) {
     for (const source of await conversationDocuments.list(conversation.id)) ids.add(source.id);
   }
