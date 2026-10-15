@@ -1,240 +1,156 @@
 /**
- * KnowledgeBaseScreen Tests
+ * KnowledgeBaseScreen — a project's files: adding them, seeing how far each has been read, switching one
+ * off, removing one, opening one.
+ *
+ * Mounted on a REAL navigation stack over the REAL knowledge base and document engine
+ * (harness/knowledgeBaseApp). Each row's status line is the person's only view of background reading:
+ * "Reading 40%", "Indexing 16/20", "3 pages" or "Couldn't read" (KnowledgeDocumentInfo). Native leaves
+ * only: the picker, the OS dialog, memfs, in-memory SQLite, the PDF reader and the embedding model.
  */
+import { openKnowledgeBase } from '../../harness/knowledgeBaseApp';
 
-import React from 'react';
-import { render, fireEvent, act } from '@testing-library/react-native';
+jest.unmock('@react-navigation/native');
 
-const mockGoBack = jest.fn();
-const mockNavigate = jest.fn();
-
-jest.mock('@react-navigation/native', () => {
-  const actual = jest.requireActual('@react-navigation/native');
-  return {
-    ...actual,
-    useNavigation: () => ({
-      navigate: mockNavigate,
-      goBack: mockGoBack,
-      setOptions: jest.fn(),
-    }),
-    useRoute: () => ({
-      params: { projectId: 'proj1' },
-    }),
-  };
-});
-
-const mockGetDocumentsByProject = jest.fn<Promise<any[]>, [string]>(() => Promise.resolve([]));
-const mockIndexDocument = jest.fn<Promise<number>, [any]>(() => Promise.resolve(1));
-const mockDeleteDocument = jest.fn<Promise<void>, [number]>(() => Promise.resolve());
-const mockToggleDocument = jest.fn<Promise<void>, [number, boolean]>(() => Promise.resolve());
-
-jest.mock('../../../src/services/rag', () => ({
-  ragService: {
-    getDocumentsByProject: (projectId: string) => mockGetDocumentsByProject(projectId),
-    indexDocument: (params: any) => mockIndexDocument(params),
-    deleteDocument: (docId: number) => mockDeleteDocument(docId),
-    toggleDocument: (docId: number, enabled: boolean) => mockToggleDocument(docId, enabled),
-    ensureReady: jest.fn(() => Promise.resolve()),
-  },
-}));
-
-let mockProject: any = { id: 'proj1', name: 'My Project' };
-
-jest.mock('../../../src/stores', () => ({
-  useProjectStore: jest.fn((selector?: any) => {
-    const state = { getProject: () => mockProject };
-    return selector ? selector(state) : state;
-  }),
-  useChatStore: jest.fn(() => ({})),
-  useAppStore: jest.fn(() => ({})),
-}));
-
-jest.mock('@react-native-documents/picker', () => ({
-  pick: jest.fn(() => Promise.resolve([{
-    uri: 'file:///mock/doc.txt',
-    name: 'doc.txt',
-    size: 1000,
-  }])),
-  keepLocalCopy: jest.fn(() => Promise.resolve([{ status: 'success', localUri: '/mock/local/doc.txt' }])),
-}));
-
-jest.mock('react-native-vector-icons/Feather', () => {
-  const { Text } = require('react-native');
-  return ({ name }: any) => <Text>{name}</Text>;
-});
-
-import { KnowledgeBaseScreen } from '../../../src/screens/KnowledgeBaseScreen';
-
-const flushPromises = () => act(async () => {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-});
+const TOPICS = ['pumps', 'valves', 'seals', 'gaskets', 'bearings', 'filters', 'hoses', 'gauges', 'belts', 'fuses'];
+/** Pages that read like a real manual: each one about something different (identical lines would be
+ *  dropped as a running header, as they are in a real PDF). */
+const pages = (count: number) =>
+  Array.from(
+    { length: count },
+    (_, i) =>
+      `Section ${i * 7 + 3}: inspecting the ${TOPICS[i % TOPICS.length]} of unit ${String.fromCharCode(65 + (i % 26))}${i}. ` +
+      `Record the reading of gauge ${i * 13 + 1} and replace anything worn past ${i % 4} millimetres.`,
+  );
 
 describe('KnowledgeBaseScreen', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockProject = { id: 'proj1', name: 'My Project' };
-    mockGetDocumentsByProject.mockResolvedValue([]);
+  it('shows the project name, and an empty state until a file is added', async () => {
+    const kb = await openKnowledgeBase({ projectName: 'Field Ops' });
+
+    expect(kb.view.getByText('Field Ops')).toBeTruthy();
+    expect(kb.view.getByText('No documents yet')).toBeTruthy();
   });
 
-  describe('basic rendering', () => {
-    it('renders the screen and shows project name', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('My Project')).toBeTruthy();
-    });
+  it('lists an added file with its size, and its status reads the page count once it is read', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedPdf('/docs/Downloads/manual.pdf', pages(3));
 
-    it('shows fallback title when project is null', async () => {
-      mockProject = null;
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('Knowledge Base')).toBeTruthy();
-    });
+    await kb.addFiles([{ path: '/docs/Downloads/manual.pdf', name: 'manual.pdf' }]);
 
-    it('shows loading indicator initially', () => {
-      const { getByLabelText } = render(<KnowledgeBaseScreen />);
-      // The one loader in this app announces itself as "Working". Asserted by what a user
-      // perceives rather than by component type, so replacing the loader again cannot break this.
-      expect(getByLabelText('Working')).toBeTruthy();
-    });
-
-    it('shows empty state when no documents', async () => {
-      mockGetDocumentsByProject.mockResolvedValue([]);
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('No documents yet')).toBeTruthy();
-    });
+    expect(kb.view.queryByText('No documents yet')).toBeNull();
+    const status = await kb.statusOf('/docs/Downloads/manual.pdf');
+    await kb.rtl.waitFor(() => expect(status.props.children).toMatch(/^\d+(\.\d)? (B|KB) · 3 pages$/));
   });
 
-  describe('with documents', () => {
-    const docs: any[] = [
-      { id: 1, name: 'readme.txt', path: '/docs/readme.txt', size: 500, enabled: 1, projectId: 'proj1', createdAt: '' },
-      { id: 2, name: 'notes.pdf', path: '/docs/notes.pdf', size: 2048 * 1024, enabled: 0, projectId: 'proj1', createdAt: '' },
-    ];
+  it('adds several picked files at once', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/a.txt', 'Alpha notes.');
+    kb.engine.seedText('/docs/Downloads/b.txt', 'Beta notes.');
 
-    beforeEach(() => {
-      mockGetDocumentsByProject.mockResolvedValue(docs);
-    });
+    await kb.addFiles([
+      { path: '/docs/Downloads/a.txt', name: 'a.txt' },
+      { path: '/docs/Downloads/b.txt', name: 'b.txt' },
+    ]);
 
-    it('renders document names', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('readme.txt')).toBeTruthy();
-      expect(getByText('notes.pdf')).toBeTruthy();
-    });
-
-    it('formats file sizes correctly', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('500 B')).toBeTruthy();
-      expect(getByText('2.0 MB')).toBeTruthy();
-    });
-
-    it('navigates to DocumentPreview when doc is pressed', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      fireEvent.press(getByText('readme.txt'));
-      expect(mockNavigate).toHaveBeenCalledWith('DocumentPreview', {
-        filePath: '/docs/readme.txt',
-        fileName: 'readme.txt',
-        fileSize: 500,
-      });
-    });
+    expect(kb.view.getByText('a.txt')).toBeTruthy();
+    expect(kb.view.getByText('b.txt')).toBeTruthy();
   });
 
-  describe('file size formatting', () => {
-    it('formats KB size', async () => {
-      const kbDoc: any[] = [{ id: 3, name: 'small.txt', path: '/docs/small.txt', size: 2048, enabled: 1, projectId: 'proj1', createdAt: '' }];
-      mockGetDocumentsByProject.mockResolvedValue(kbDoc);
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(getByText('2.0 KB')).toBeTruthy();
-    });
-  });
+  describe('a row says how far its file has been read', () => {
+    it('"Reading …%" while pages are still coming in, then the page count', async () => {
+      const kb = await openKnowledgeBase();
+      // A long PDF: the reader parks before its second batch of pages.
+      kb.engine.seedPdf('/docs/Downloads/book.pdf', pages(60));
+      kb.engine.holdReadAt(50);
 
-  describe('back navigation', () => {
-    it('calls goBack when back button pressed', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      fireEvent.press(getByText('arrow-left'));
-      expect(mockGoBack).toHaveBeenCalled();
+      await kb.addFiles([{ path: '/docs/Downloads/book.pdf', name: 'book.pdf' }]);
+      const status = await kb.statusOf('/docs/Downloads/book.pdf');
+      await kb.rtl.waitFor(() => expect(status.props.children).toMatch(/· Reading \d+%$/));
+      expect(status.props.children).not.toMatch(/pages$/);
+
+      await kb.rtl.act(async () => kb.engine.releaseRead());
+
+      await kb.rtl.waitFor(() =>
+        expect(kb.view.getByTestId(status.props.testID).props.children).toMatch(/· 60 pages$/),
+      );
+    });
+
+    it('"Indexing done/total" while passages are being embedded', async () => {
+      const kb = await openKnowledgeBase();
+      // 20 one-passage pages: the first batch of 16 is embedded, then the model is parked.
+      kb.engine.seedPdf('/docs/Downloads/manual.pdf', pages(20));
+      kb.engine.holdEmbedding(16);
+
+      await kb.addFiles([{ path: '/docs/Downloads/manual.pdf', name: 'manual.pdf' }]);
+      const status = await kb.statusOf('/docs/Downloads/manual.pdf');
+      await kb.rtl.waitFor(() => expect(status.props.children).toMatch(/· Indexing 16\/20$/));
+
+      await kb.rtl.act(async () => kb.engine.releaseEmbedding());
+
+      await kb.rtl.waitFor(() =>
+        expect(kb.view.getByTestId(status.props.testID).props.children).toMatch(/· 20 pages$/),
+      );
+    });
+
+    it('"Couldn\'t read" when the file cannot be opened', async () => {
+      const kb = await openKnowledgeBase();
+      kb.engine.seedText('/docs/Downloads/broken.pdf', 'damaged bytes');
+
+      await kb.addFiles([{ path: '/docs/Downloads/broken.pdf', name: 'broken.pdf' }]);
+
+      const status = await kb.statusOf('/docs/Downloads/broken.pdf');
+      await kb.rtl.waitFor(() => expect(status.props.children).toMatch(/· Couldn't read$/));
     });
   });
 
-  describe('add document flow', () => {
-    it('calls pick when add button pressed', async () => {
-      const { pick } = require('@react-native-documents/picker');
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      fireEvent.press(getByText('plus'));
-      await flushPromises();
-      expect(pick).toHaveBeenCalled();
-    });
+  it('switches a file off and on, and the switch says which', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/notes.txt', 'Field notes.');
+    await kb.addFiles([{ path: '/docs/Downloads/notes.txt', name: 'notes.txt' }]);
+    const toggle = kb.view.getByLabelText('Use notes.txt, ON');
 
-    it('calls indexDocument after picking a file', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      fireEvent.press(getByText('plus'));
-      await flushPromises();
-      expect(mockIndexDocument).toHaveBeenCalled();
-    });
+    kb.rtl.fireEvent(toggle, 'valueChange', false);
 
-    it('reloads docs after indexing', async () => {
-      const { getByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      const initialCallCount = mockGetDocumentsByProject.mock.calls.length;
-      fireEvent.press(getByText('plus'));
-      await flushPromises();
-      expect(mockGetDocumentsByProject.mock.calls.length).toBeGreaterThan(initialCallCount);
-    });
+    await kb.rtl.waitFor(() => expect(kb.view.getByLabelText('Use notes.txt, OFF')).toBeTruthy());
+
+    kb.rtl.fireEvent(kb.view.getByLabelText('Use notes.txt, OFF'), 'valueChange', true);
+
+    await kb.rtl.waitFor(() => expect(kb.view.getByLabelText('Use notes.txt, ON')).toBeTruthy());
   });
 
-  describe('error handling', () => {
-    it('handles load error gracefully', async () => {
-      mockGetDocumentsByProject.mockRejectedValueOnce(new Error('DB error'));
-      const { Alert } = require('react-native');
-      jest.spyOn(Alert, 'alert').mockImplementation((..._args: unknown[]) => undefined);
-      render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'DB error');
-    });
+  it('removes a file after the person confirms, and keeps it when they cancel', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedText('/docs/Downloads/notes.txt', 'Field notes.');
+    await kb.addFiles([{ path: '/docs/Downloads/notes.txt', name: 'notes.txt' }]);
+
+    kb.rtl.fireEvent.press(kb.view.getByLabelText('Remove notes.txt'));
+    expect(kb.dialogTitle()).toBe('Remove Document');
+    await kb.answerDialog('Cancel');
+    expect(kb.view.getByText('notes.txt')).toBeTruthy();
+
+    kb.rtl.fireEvent.press(kb.view.getByLabelText('Remove notes.txt'));
+    await kb.answerDialog('Remove');
+
+    await kb.rtl.waitFor(() => expect(kb.view.getByText('No documents yet')).toBeTruthy());
+    expect(kb.view.queryByText('notes.txt')).toBeNull();
   });
 
-  describe('toggle document', () => {
-    it('calls toggleDocument when switch is toggled', async () => {
-      const toggleDoc: any[] = [{ id: 1, name: 'file.txt', path: '/file.txt', size: 100, enabled: 1, projectId: 'proj1', createdAt: '' }];
-      mockGetDocumentsByProject.mockResolvedValue(toggleDoc);
-      const { UNSAFE_getAllByType } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      const { Switch } = require('react-native');
-      const switches = UNSAFE_getAllByType(Switch);
-      fireEvent(switches[0], 'valueChange', false);
-      await flushPromises();
-      expect(mockToggleDocument).toHaveBeenCalledWith(1, false);
-    });
+  it('opens a file\'s pages when its row is tapped', async () => {
+    const kb = await openKnowledgeBase();
+    kb.engine.seedPdf('/docs/Downloads/manual.pdf', ['Setup steps.', 'Torque the bolts to 40 Nm.']);
+    await kb.addFiles([{ path: '/docs/Downloads/manual.pdf', name: 'manual.pdf' }]);
+
+    kb.rtl.fireEvent.press(kb.view.getByLabelText('Knowledge document manual.pdf'));
+
+    await kb.rtl.waitFor(() => expect(kb.view.getByText('Torque the bolts to 40 Nm.')).toBeTruthy());
+    expect(kb.view.getByText('Page 2')).toBeTruthy();
   });
 
-  describe('delete document', () => {
-    it('shows Alert when delete is pressed and calls deleteDocument on confirm', async () => {
-      const deleteDoc: any[] = [{ id: 1, name: 'file.txt', path: '/file.txt', size: 100, enabled: 1, projectId: 'proj1', createdAt: '' }];
-      mockGetDocumentsByProject.mockResolvedValue(deleteDoc);
-      const { Alert } = require('react-native');
-      let confirmCallback: (() => void) | undefined;
-      jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => {
-        const buttons = args[2] as any[];
-        const removeBtn = buttons?.find((b: any) => b.style === 'destructive');
-        confirmCallback = removeBtn?.onPress;
-      });
+  it('goes back to the project', async () => {
+    const kb = await openKnowledgeBase();
 
-      const { getAllByText } = render(<KnowledgeBaseScreen />);
-      await flushPromises();
-      fireEvent.press(getAllByText('trash-2')[0]);
-      expect(Alert.alert).toHaveBeenCalledWith('Remove Document', expect.stringContaining('file.txt'), expect.any(Array));
+    kb.rtl.fireEvent.press(kb.view.getByLabelText('Back'));
 
-      await act(async () => {
-        confirmCallback?.();
-        await flushPromises();
-      });
-      expect(mockDeleteDocument).toHaveBeenCalledWith(1);
-    });
+    await kb.rtl.waitFor(() => expect(kb.view.queryByTestId('knowledge-base-screen')).toBeNull());
+    expect(kb.view.getByText('Open knowledge base')).toBeTruthy();
   });
 });

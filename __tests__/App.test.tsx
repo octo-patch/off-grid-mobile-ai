@@ -156,7 +156,7 @@ jest.mock('../src/services', () => ({
   authService: {
     hasPassphrase: jest.fn(() => Promise.resolve(false)),
   },
-  ragService: {
+  knowledgeBase: {
     ensureReady: jest.fn(() => Promise.resolve()),
   },
   remoteServerManager: {

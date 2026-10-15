@@ -11,7 +11,7 @@
  * which is the text the Activity row renders; "failed" with no cause leaves the user tapping Retry forever on
  * a document that can never send.
  *
- * Real service, real ragService, real SQLite (harness/sqliteFake), real in-memory filesystem (memfs via the
+ * Real service, real knowledge base, real SQLite (harness/sqliteFake), real in-memory filesystem (memfs via the
  * repo's RNFS boundary). Only the native TCP module is stood in for, and nothing reaches it in these cases -
  * that is the point.
  */
@@ -60,9 +60,8 @@ type Harness = {
 /** Index a real document into a real knowledge base, and return the handles the cases need. */
 async function indexedDocument(): Promise<Harness> {
   installRealSqlite();
-  const { ragService } = require('../../../src/services/rag');
-  const { documentService } = require('../../../src/services/documentService');
-  const { embeddingService } = require('../../../src/services/rag/embedding');
+  const { knowledgeBase } = require('../../../src/services/rag');
+  const { ragDatabase } = require('../../../src/services/rag/database');
   const {
     knowledgeDocumentSyncService,
   } = require('../../../pro/sync/knowledgeDocumentSyncService');
@@ -71,23 +70,17 @@ async function indexedDocument(): Promise<Harness> {
   modelTransferFsBoundary.reset();
   modelTransferFsBoundary.module.writeFile(DOC_PATH, CONTENTS, 'utf8');
 
-  // The embedding MODEL is native; deterministic vectors keep indexing real without it.
-  jest.spyOn(embeddingService, 'load').mockResolvedValue(undefined as never);
-  jest.spyOn(embeddingService, 'getDimension').mockReturnValue(3);
-  jest.spyOn(embeddingService, 'embed').mockResolvedValue([1, 0, 0] as never);
-  jest.spyOn(embeddingService, 'embedBatch').mockResolvedValue([[1, 0, 0]] as never);
-  // Native document extraction.
-  jest
-    .spyOn(documentService, 'processDocumentFromPath')
-    .mockResolvedValue({ type: 'document', textContent: CONTENTS } as never);
-
-  await ragService.indexDocument({
+  // A knowledge-base file row for the kept copy: what sync sends. Its text is indexed separately by
+  // the document engine, which these refusal cases never reach.
+  await ragDatabase.ensureReady();
+  ragDatabase.insertDocument({
     projectId: 'p1',
-    filePath: DOC_PATH,
-    fileName: 'contract.txt',
-    fileSize: CONTENTS.length,
+    name: 'contract.txt',
+    path: DOC_PATH,
+    size: CONTENTS.length,
+    documentId: 'contract-sha256',
   });
-  const [document] = await ragService.getAllDocumentsForSync();
+  const [document] = await knowledgeBase.getAllDocumentsForSync();
   if (!document) throw new Error('the document was not indexed');
 
   return {

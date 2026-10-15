@@ -46,7 +46,7 @@ const mockProcessDocument = jest.fn(() => Promise.resolve({
 jest.mock('../../../src/services/documentService', () => ({
   documentService: {
     get isSupported() { return mockIsSupported; },
-    get processDocumentFromPath() { return mockProcessDocument; },
+    get attachDocument() { return mockProcessDocument; },
   },
 }));
 
@@ -831,14 +831,14 @@ describe('ChatInput', () => {
       );
     });
 
-    it('shows error alert when processDocumentFromPath fails', async () => {
+    it('shows error alert when attaching the document fails', async () => {
       mockPick.mockResolvedValue([{
         uri: 'file:///mock/bad-file.txt',
         name: 'bad-file.txt',
         type: 'text/plain',
         size: 100,
       }]);
-      mockProcessDocument.mockRejectedValue(new Error('File is too large. Maximum size is 5MB'));
+      mockProcessDocument.mockRejectedValue(new Error('File is too large. Maximum size is 1 GB'));
 
       const result = render(
         <ChatInput {...defaultProps} />
@@ -848,7 +848,7 @@ describe('ChatInput', () => {
 
       await waitFor(() => {
         expect(result.getByText('Error')).toBeTruthy();
-        expect(result.getByText('File is too large. Maximum size is 5MB')).toBeTruthy();
+        expect(result.getByText('File is too large. Maximum size is 1 GB')).toBeTruthy();
       });
 
       mockProcessDocument.mockResolvedValue({
@@ -861,36 +861,6 @@ describe('ChatInput', () => {
       });
     });
 
-    it('handles processDocumentFromPath returning null', async () => {
-      mockPick.mockResolvedValue([{
-        uri: 'file:///mock/null-result.txt',
-        name: 'null-result.txt',
-        type: 'text/plain',
-        size: 100,
-      }]);
-      mockProcessDocument.mockResolvedValue(null as any);
-
-      const result = render(
-        <ChatInput {...defaultProps} />
-      );
-
-      pressAttachDocument(result);
-
-      await waitFor(() => {
-        expect(mockPick).toHaveBeenCalled();
-      });
-
-      expect(result.queryByTestId('attachments-container')).toBeNull();
-
-      mockProcessDocument.mockResolvedValue({
-        id: 'doc-1',
-        type: 'document' as const,
-        uri: 'file:///mock/document.txt',
-        fileName: 'document.txt',
-        textContent: 'File content here',
-        fileSize: 1234,
-      });
-    });
 
     it('keeps attach button enabled during generation', () => {
       const { getByTestId } = render(

@@ -17,9 +17,12 @@ export function installRealSqlite(setupSql?: string): void {
  * already reset modules (e.g. installNativeBoundary for a mounted-screen RAG test). Call AFTER that installer,
  * before requiring the rag modules. installRealSqlite = resetModules + this.
  */
-export function doMockRealSqlite(setupSql?: string): void {
+export function doMockRealSqlite(
+  setupSql?: string,
+  options: { withoutFts5?: boolean } = {},
+): void {
   jest.doMock('@op-engineering/op-sqlite', () =>
-    realSqliteModule({ setupSql }),
+    realSqliteModule({ setupSql, ...options }),
   );
 }
 
@@ -30,12 +33,20 @@ export function doMockRealSqlite(setupSql?: string): void {
  * gets the same inert database as the global mock, so code a test is not about keeps its old boundary.
  */
 export function realSqliteModule(
-  options: { setupSql?: string; only?: readonly string[] } = {},
+  options: {
+    setupSql?: string;
+    only?: readonly string[];
+    /** A SQLite build without the FTS5 module (op-sqlite built without `"fts5": true`). */
+    withoutFts5?: boolean;
+  } = {},
 ): { open: (config?: { name?: string }) => unknown } {
   const { DatabaseSync } = require('node:sqlite');
 
   const wrap = (db: any) => ({
     executeSync: (sql: string, params: unknown[] = []) => {
+      if (options.withoutFts5 && /USING\s+fts5/i.test(sql)) {
+        throw new Error('no such module: fts5');
+      }
       const bind = (params ?? []).map(p =>
         // op-sqlite accepts ArrayBuffer for BLOBs; node:sqlite wants a Uint8Array/Buffer. Use a
         // realm-safe check (Object.prototype.toString) because a composed harness (installNativeBoundary
@@ -55,7 +66,18 @@ export function realSqliteModule(
       }
       const stmt = db.prepare(sql);
       if (/^\s*(SELECT|WITH)\b/i.test(sql)) {
-        const rows = stmt.all(...bind);
+        // op-sqlite hands a BLOB column back as an ArrayBuffer; node:sqlite returns a Uint8Array.
+        // Answer with the device's shape so code reading vectors sees what it sees on a phone.
+        const rows = stmt.all(...bind).map((row: Record<string, unknown>) => {
+          for (const [key, value] of Object.entries(row)) {
+            // isView, not instanceof: node:sqlite builds its Uint8Array in another JS realm.
+            if (ArrayBuffer.isView(value)) {
+              const bytes = value as Uint8Array;
+              row[key] = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+            }
+          }
+          return row;
+        });
         return { rows, insertId: undefined, rowsAffected: 0 };
       }
       const info = stmt.run(...bind);
