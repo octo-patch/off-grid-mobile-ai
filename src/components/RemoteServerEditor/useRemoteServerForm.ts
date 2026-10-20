@@ -199,7 +199,9 @@ export function useRemoteServerForm({
     if (!validateForm()) return;
     setIsTesting(true);
     const minimax = isMiniMaxEndpoint(endpoint);
-    setProviderType(minimax ? 'minimax' : 'openai-compatible');
+    setProviderType(current =>
+      minimax ? 'minimax' : current === 'minimax' ? 'openai-compatible' : current,
+    );
     setTestResult(null);
     setDiscoveredModels([]);
     setModelCatalog({});
@@ -211,8 +213,13 @@ export function useRemoteServerForm({
         apiKey || undefined,
       );
       if (result.success) {
-        applySuccessfulConnection(result);
-        if (minimax && !textModelId.trim()) setTextModelId(MINIMAX_DEFAULT_MODEL);
+        applySuccessfulConnection(minimax
+          ? {
+              ...result,
+              mediaModels: { ...result.mediaModels, text: MINIMAX_DEFAULT_MODEL },
+            }
+          : result,
+        );
       } else {
         const triedUrl = `${endpoint.replace(/\/+$/, '')}/v1/models`;
         setTestResult({

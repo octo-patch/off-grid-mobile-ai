@@ -19,18 +19,52 @@ export const MINIMAX_ENDPOINTS = {
 } as const;
 
 export const MINIMAX_MODELS = [
+  { id: 'MiniMax-M3.1-Flash', contextWindow: 1_000_000 },
   { id: 'MiniMax-M3', contextWindow: 1_000_000 },
-  { id: 'MiniMax-M2.7', contextWindow: 204_800 },
 ] as const;
 
 export const MINIMAX_DEFAULT_MODEL = MINIMAX_MODELS[0].id;
 
 export type MiniMaxRegion = keyof typeof MINIMAX_ENDPOINTS;
 
+export const MINIMAX_OPENROUTER_MODELS = [
+  'minimax/minimax-m3.1-flash:free',
+  'minimax/minimax-m3',
+] as const;
+
+/** Filter ordinary text choices only; saved/custom model IDs are never rewritten. */
+export function currentMiniMaxTextModels<T extends { id: string }>(
+  endpoint: string,
+  models: T[],
+): T[] {
+  const direct = isMiniMaxEndpoint(endpoint);
+  let gateway = false;
+  try {
+    gateway = new URL(endpoint).hostname === 'openrouter.ai';
+  } catch {
+    return models;
+  }
+  if (!direct && !gateway) return models;
+  const ids: readonly string[] = direct
+    ? MINIMAX_MODELS.map(model => model.id)
+    : MINIMAX_OPENROUTER_MODELS;
+  const prefix = direct ? 'MiniMax-' : 'minimax/';
+  const current = models.filter(model => ids.includes(model.id));
+  current.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  let next = 0;
+  return models
+    .filter(model => !model.id.startsWith(prefix) || ids.includes(model.id))
+    .map(model => ids.includes(model.id) ? current[next++] : model);
+}
+
 export function isMiniMaxEndpoint(endpoint: string): boolean {
   try {
     const url = new URL(endpoint);
-    return url.hostname === 'api.minimax.io' || url.hostname === 'api.minimaxi.com';
+    // Only recognize the transport implemented by the remote provider. Other
+    // paths (including saved Anthropic endpoints) remain explicit custom routes.
+    return url.protocol === 'https:' &&
+      (url.hostname === 'api.minimax.io' || url.hostname === 'api.minimaxi.com') &&
+      ['', '/', '/v1', '/v1/'].includes(url.pathname);
   } catch {
     return false;
   }
